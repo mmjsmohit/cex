@@ -16,7 +16,7 @@ interface Order {
 interface AssetOrderBook {
   bids: Order[];
   asks: Order[];
-  lastTradedAt: number;
+  lastTradedPrice: number;
 }
 
 type OrderBook = Record<MarketId, AssetOrderBook>;

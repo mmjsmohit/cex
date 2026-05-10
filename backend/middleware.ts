@@ -19,6 +19,5 @@ export default function authMiddleware(
   // @ts-ignore
   const decodedId = decoded?.userId!;
   req.userId = decodedId;
-  console.log("Request from userId " + decodedId + " forwarded");
   next();
 }

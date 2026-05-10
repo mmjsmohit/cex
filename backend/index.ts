@@ -109,19 +109,27 @@ app.post("/signin", async (req: Request, res: Response) => {
 app.post("/order", authMiddleware, async (req, res) => {
   // matching
   const userId = req.userId;
-  const { type, price, quantity, market_id, side } = req.body;
+  const { price, quantity, market_id, trade_side, order_type } = req.body;
   let identifier = randomUUID();
+
+  const market = await prisma.market.findFirst({
+    where: {
+      id: market_id,
+    },
+  });
 
   await publisherClient.send("LPUSH", [
     "incoming-orders",
     JSON.stringify({
-      type,
+      orderId: identifier,
+      userId,
+      requestType: "create_order",
       price,
       quantity,
       market_id,
-      side,
-      userId,
-      identifier,
+      trade_side,
+      order_type,
+      market,
       queue_id: QUEUE_ID,
     }),
   ]);
@@ -158,14 +166,19 @@ app.get("/fills", (req, res) => {});
 app.post("/balance", authMiddleware, async (req, res) => {
   const { usdAmount } = req.body;
   const userId = req.userId;
-  console.log("Adding USD " + usdAmount + " to user " + userId);
+  const usdAsset = await prisma.asset.findFirst({
+    where: {
+      symbol: "USD",
+    },
+  });
   // Push the add-balance to redis queue
   const identifier = randomUUID();
   await publisherClient.send("LPUSH", [
     "balance",
     JSON.stringify({
-      type: "add_balance",
+      requestType: "add_balance",
       userId,
+      assetId: usdAsset?.id,
       usdAmount,
       identifier,
       queue_id: QUEUE_ID,
@@ -187,8 +200,9 @@ app.get("/balance/usd", authMiddleware, async (req, res) => {
   await publisherClient.send("LPUSH", [
     "balance",
     JSON.stringify({
-      type: "get_usd_balance",
+      requestType: "get_usd_balance",
       userId,
+      orderId: identifier,
       identifier,
       queue_id: QUEUE_ID,
     }),
@@ -210,7 +224,7 @@ app.get("/balance", authMiddleware, async (req, res) => {
   await publisherClient.send("LPUSH", [
     "balance",
     JSON.stringify({
-      type: "get_balance",
+      requestType: "get_balance",
       userId,
       identifier,
       queue_id: QUEUE_ID,

@@ -5,7 +5,8 @@
 
 import { RedisClient } from "bun";
 import type { Balances } from "./types/balances.types";
-import type { OrderBook } from "./types/orderbook.types";
+import type { Order, OrderBook } from "./types/orderbook.types";
+import { processLimitBuy } from "./matching";
 
 // Define and initiate the clients for pushing and reading from Redis
 const publisherClient = new RedisClient(process.env.REDIS_URL);
@@ -39,10 +40,10 @@ async function* incomingMessageStream(subscribingClient: RedisClient) {
     const response = await subscribingClient.send("BRPOP", [
       "incoming-orders",
       "balance",
-      "1",
+      "0",
     ]);
     if (!response) continue;
-    const [queue, message, block] = response;
+    const [queue, message] = response;
     yield JSON.parse(message);
   }
 }
@@ -50,13 +51,36 @@ async function* incomingMessageStream(subscribingClient: RedisClient) {
 for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
   let data = {};
   const identifier = parsedResponse.identifier;
-  if (parsedResponse.type === "create_order") {
+  if (parsedResponse.requestType === "create_order") {
+    const incomingOrder: Order = {
+      orderId: parsedResponse.orderId,
+      userId: parsedResponse.userId,
+      price: parsedResponse.price,
+      quantity: parsedResponse.quantity,
+      filled: 0,
+      tradeSide: parsedResponse.trade_side,
+      createdAt: Date.now(),
+    };
+    const market = parsedResponse.market;
+
+    // Process the incoming order
+    processLimitBuy(
+      parsedResponse.market_id,
+      incomingOrder,
+      market.baseAssetId,
+      market.quoteAssetId,
+    );
+    data = {
+      requestType: "create_order",
+      identifier: incomingOrder.orderId,
+      orderbook: ORDERBOOK,
+    };
   }
 
-  if (parsedResponse.type === "get_depth") {
+  if (parsedResponse.requestType === "get_depth") {
   }
 
-  if (parsedResponse.type === "get_balance") {
+  if (parsedResponse.requestType === "get_balance") {
     const { userId } = parsedResponse;
     const balance = BALANCES[userId];
     data = {
@@ -67,11 +91,10 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
     };
   }
 
-  if (parsedResponse.type === "get_usd_balance") {
+  if (parsedResponse.requestType === "get_usd_balance") {
     const { userId } = parsedResponse;
     const balance = BALANCES[userId];
     if (!balance) BALANCES[userId] = [];
-    console.log(balance);
     data = {
       type: "get_usd_balance",
       userId,
@@ -80,15 +103,15 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
     };
   }
 
-  if (parsedResponse.type === "add_balance") {
+  if (parsedResponse.requestType === "add_balance") {
     let finalBalance: number;
-    const { userId, usdAmount } = parsedResponse;
+    const { userId, usdAmount, assetId } = parsedResponse;
     if (!BALANCES[userId]) BALANCES[userId] = [];
 
     // Check if the user already has a USD balance, and update it if so
     // TODO: Migrate to using the ID of the USD Asset in DB
     const previousUsdBalance = BALANCES[userId]?.find(
-      (asset) => asset.assetId === "usd",
+      (asset) => asset.assetId === assetId,
     );
     if (previousUsdBalance) {
       finalBalance = previousUsdBalance.amount + usdAmount;
@@ -96,12 +119,11 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
     } else {
       finalBalance = usdAmount;
       BALANCES[userId].push({
-        assetId: "usd",
+        assetId: assetId,
         amount: usdAmount,
         lockedAmount: 0,
       });
     }
-    console.log(BALANCES);
 
     data = {
       type: "add_balance",
