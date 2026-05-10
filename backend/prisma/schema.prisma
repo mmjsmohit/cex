@@ -1,0 +1,109 @@
+// If you sit on the order book then you are the maker, if not, you are the taker.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  LIMIT
+  MARKET
+}
+
+enum LiquidType {
+  MAKER
+  TAKER
+}
+
+enum OrderStatus {
+  OPEN
+  FILLED
+  PARTIAL
+  CANCELLED
+}
+
+model User {
+  id                String             @id @default(uuid())
+  name              String
+  username          String
+  password          String
+  // fiatBalance       Float ---> Would be stored in memory
+  // lockedFiat        Float ---> Would be stored in memory
+  fills             Fills[]
+  orderHistories    OrderHistory[]
+  userAssetBalances userAssetBalance[]
+}
+
+model Asset {
+  id                String             @id @default(uuid())
+  name              String
+  symbol            String
+  logo              String
+  fills             Fills[]
+  orderHistories    OrderHistory[]
+  userAssetBalances userAssetBalance[]
+  baseMarkets       Market[]           @relation("BaseAsset")
+  quoteMarkets      Market[]           @relation("QuoteAsset")
+}
+
+model Market {
+  id           String @id @default(uuid())
+  name         String
+  baseAssetId  String
+  quoteAssetId String
+
+  baseAsset  Asset? @relation("BaseAsset", fields: [baseAssetId], references: [id])
+  quoteAsset Asset? @relation("QuoteAsset", fields: [quoteAssetId], references: [id])
+}
+
+model userAssetBalance {
+  id       String @id @default(uuid())
+  user     User   @relation(fields: [userId], references: [id])
+  asset    Asset  @relation(fields: [assetsId], references: [id])
+  amount   Float
+  userId   String
+  assetsId String
+}
+
+// The intended orders of the user
+model OrderHistory {
+  id        String      @id @default(uuid())
+  user      User        @relation(fields: [userId], references: [id])
+  asset     Asset       @relation(fields: [assetsId], references: [id])
+  amount    Float
+  price     Float
+  type      OrderType
+  side      TradeSide
+  userId    String
+  assetsId  String
+  fills     Fills[]
+  status    OrderStatus
+  timestamp DateTime    @default(now())
+}
+
+// The actual fills done in the market for a particular order placed by the user
+model Fills {
+  id              String       @id @default(uuid())
+  user            User         @relation(fields: [userId], references: [id])
+  asset           Asset        @relation(fields: [assetsId], references: [id])
+  amount          Float
+  price           Float
+  type            OrderType
+  side            TradeSide
+  liquidType      LiquidType
+  userId          String
+  assetsId        String
+  originalOrder   OrderHistory @relation(fields: [originalOrderId], references: [id])
+  originalOrderId String
+  fee             Float
+  timestamp       DateTime     @default(now())
+}
