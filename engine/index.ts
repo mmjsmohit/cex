@@ -28,32 +28,11 @@ subscriberClient.onclose = (error) => {
 
 // Global in memory Balances Array
 // Balances array which will store the balances of the users for each asset along with the fiat balance and locked fiat
-let BALANCES: Balances = {};
+export let BALANCES: Balances = {};
 
 // Global Orderbook Object which includes every asset
 // Stores the orderbooks of all the assets with their bids, asks and last traded price
-let ORDERBOOK: OrderBook = {};
-
-// Utility function for locking balances before an order is placed
-function lockBalances(userId: string, assetId: string, amountToLock: number) {
-  const userBalance = BALANCES[userId];
-  // Check if the user has enough balance to be locked
-
-  const userAsset = userBalance?.find((asset) => {
-    asset.assetId === assetId;
-  });
-  if (userAsset?.amount! < amountToLock) {
-    return false;
-  } else {
-    BALANCES[userId]?.map((asset) => {
-      if (asset.assetId === assetId) {
-        asset.amount -= amountToLock;
-        asset.lockedAmount = amountToLock;
-      }
-    });
-    return true;
-  }
-}
+export let ORDERBOOK: OrderBook = {};
 
 async function* incomingMessageStream(subscribingClient: RedisClient) {
   while (true) {

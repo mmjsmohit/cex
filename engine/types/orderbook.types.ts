@@ -21,4 +21,4 @@ interface AssetOrderBook {
 
 type OrderBook = Record<MarketId, AssetOrderBook>;
 
-export type { OrderBook, MarketId, AssetOrderBook };
+export type { OrderBook, Order, MarketId, AssetOrderBook };
