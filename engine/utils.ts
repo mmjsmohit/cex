@@ -1,10 +1,13 @@
 import { BALANCES } from ".";
+import type { UserId } from "./types/balances.types";
 import type { Order } from "./types/orderbook.types";
 
 function getOrCreateAssetBalance(userId: string, assetId: string) {
   if (!BALANCES[userId]) BALANCES[userId] = [];
 
-  let assetBalance = BALANCES[userId].find((asset) => asset.assetId === assetId);
+  let assetBalance = BALANCES[userId].find(
+    (asset) => asset.assetId === assetId,
+  );
   if (!assetBalance) {
     assetBalance = {
       assetId,

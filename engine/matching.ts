@@ -25,7 +25,7 @@ export function processLimitBuy(
   const book = getOrCreateBook(marketId);
   let remainingQty = incomingOrder.quantity - incomingOrder.filled;
 
-  // 1. Lock the required Quote Asset (USD) for the BUYER
+  // 1. Lock the required Quote Asset for the BUYER
   const requiredQuote = remainingQty * incomingOrder.price;
   if (!lockBalances(incomingOrder.userId, quoteAsset, requiredQuote)) {
     throw new Error("Insufficient funds");
@@ -117,6 +117,7 @@ export function processLimitSell(
     if (bestBid.filled === bestBid.quantity) {
       book.bids.shift();
     }
+    // TODO: After the fill has happened, emit an event using Redis Queue to let the backend know and store in the DB
   }
 
   // 3. If the incoming sell order wasn't fully filled, add it to the Asks book

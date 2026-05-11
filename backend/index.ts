@@ -107,7 +107,6 @@ app.post("/signin", async (req: Request, res: Response) => {
 
 // 500001
 app.post("/order", authMiddleware, async (req, res) => {
-  // matching
   const userId = req.userId;
   const { price, quantity, market_id, trade_side, order_type } = req.body;
   let identifier = randomUUID();
@@ -155,6 +154,30 @@ app.post("/order", authMiddleware, async (req, res) => {
     loopbackResponse,
   });
 });
+
+// Get all orders for the user
+app.get("/orders", authMiddleware, async (req, res) => {
+  const userId = req.userId;
+  let requestId = randomUUID();
+
+  const loopbackResponsePromise = getLoopbackResponse(requestId);
+
+  await publisherClient.send("LPUSH", [
+    "incoming-orders",
+    JSON.stringify({
+      userId,
+      identifier: requestId,
+      requestType: "get_all_orders",
+      queue_id: QUEUE_ID,
+    }),
+  ]);
+  const loopbackResponse = await loopbackResponsePromise;
+  res.json({
+    message: "Order Pushed to Queue Successfully",
+    requestId,
+    loopbackResponse,
+  });
+});
 /*
     returns the status of an order (partially filled, success, cancellled)
     ALSO RETURNS THE INDIVIDUAL FILLS OF THIS ORDER
@@ -166,9 +189,6 @@ app.delete("/order/:orderId", (req, res) => {});
 
 // Get the orderbook depth for a given symbol, e.g., SOL/USD
 app.get("/depth/:symbol", (req, res) => {});
-
-// Get all orders for the user
-app.get("/orders", (req, res) => {});
 
 // Get all open orders for the user
 app.get("/orders/open", (req, res) => {});

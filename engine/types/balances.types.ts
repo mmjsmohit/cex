@@ -8,4 +8,4 @@ interface Balance {
 
 type Balances = Record<UserId, Balance[]>;
 
-export type { Balance, Balances };
+export type { Balance, Balances, UserId };

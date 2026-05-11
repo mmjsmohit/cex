@@ -92,6 +92,15 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
         order: incomingOrder,
         orderbook: ORDERBOOK[parsedResponse.market_id],
       };
+
+      // Publish to the WS server
+      await publisherClient.send("LPUSH", [
+        "order-updates",
+        JSON.stringify({
+          data,
+          marketId: market.id,
+        }),
+      ]);
     } catch (error) {
       data = {
         requestType: "create_order",
@@ -103,6 +112,38 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
   }
 
   if (parsedResponse.requestType === "get_depth") {
+  }
+
+  if (parsedResponse.requestType === "get_all_orders") {
+    const userId = parsedResponse.userId;
+    const identifier = parsedResponse.identifier;
+    try {
+      const userOrders = Object.entries(ORDERBOOK)
+        .map(([marketId, orderbook]) => {
+          const orders = [...orderbook.bids, ...orderbook.asks].filter(
+            (order) => order.userId === userId,
+          );
+          return {
+            marketId,
+            orders,
+          };
+        })
+        .filter((marketOrders) => {
+          return marketOrders.orders.length > 0;
+        });
+      // Add userOrders to the response
+      data = {
+        type: "get_all_orders",
+        identifier,
+        orders: userOrders,
+      };
+    } catch (error) {
+      data = {
+        type: "get_all_orders",
+        identifier,
+        error: error instanceof Error ? error.message : "Something went wrong",
+      };
+    }
   }
 
   if (parsedResponse.requestType === "get_balance") {
@@ -158,7 +199,7 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
     };
   }
 
-  const response = await publisherClient.send("LPUSH", [
+  await publisherClient.send("LPUSH", [
     "response-queue-" + parsedResponse.queue_id,
     JSON.stringify(data),
   ]);
