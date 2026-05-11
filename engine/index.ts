@@ -114,6 +114,31 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
   if (parsedResponse.requestType === "get_depth") {
   }
 
+  if (parsedResponse.requestType === "get_order") {
+    const { userId, orderId, identifier } = parsedResponse;
+    try {
+      const userOrder = Object.entries(ORDERBOOK).map(([_, orderbook]) => {
+        const order = [...orderbook.bids, ...orderbook.asks].filter(
+          (order) => order.userId === userId && order.orderId === orderId,
+        );
+        return {
+          order,
+        };
+      });
+      data = {
+        type: "get_order",
+        identifier,
+        order: userOrder,
+      };
+    } catch (error) {
+      data = {
+        type: "get_orders",
+        identifier,
+        error: error instanceof Error ? error.message : "Something went wrong",
+      };
+    }
+  }
+
   if (parsedResponse.requestType === "get_all_orders") {
     const userId = parsedResponse.userId;
     const identifier = parsedResponse.identifier;

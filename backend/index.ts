@@ -182,7 +182,30 @@ app.get("/orders", authMiddleware, async (req, res) => {
     returns the status of an order (partially filled, success, cancellled)
     ALSO RETURNS THE INDIVIDUAL FILLS OF THIS ORDER
 */
-app.get("/order/:orderId", (req, res) => {});
+app.get("/order/:orderId", authMiddleware, async (req, res) => {
+  const userId = req.userId;
+  const orderId = req.params.orderId;
+
+  const requestId = randomUUID();
+  const loopbackResponsePromise = getLoopbackResponse(requestId);
+  await publisherClient.send("LPUSH", [
+    "incoming-orders",
+    JSON.stringify({
+      identifier: requestId,
+      userId,
+      orderId,
+      requestType: "get_order",
+      queue_id: QUEUE_ID,
+    }),
+  ]);
+
+  const loopbackResponse = await loopbackResponsePromise;
+  res.status(200).json({
+    message: "Order fetched successfully",
+    requestId,
+    loopbackResponse,
+  });
+});
 
 // Delete an order from the orderbook if it is not filled or is partially filled
 app.delete("/order/:orderId", (req, res) => {});
