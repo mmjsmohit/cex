@@ -5,7 +5,12 @@
 
 import { RedisClient } from "bun";
 import type { Balances } from "./types/balances.types";
-import type { Order, OrderBook, TradeSide } from "./types/orderbook.types";
+import type {
+  AssetOrderBook,
+  Order,
+  OrderBook,
+  TradeSide,
+} from "./types/orderbook.types";
 import { processLimitBuy, processLimitSell } from "./matching";
 import { getMarketDepth } from "./depth";
 
@@ -97,13 +102,18 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
       };
 
       // Publish to the WS server
-      await publisherClient.send("LPUSH", [
-        "order-updates",
-        JSON.stringify({
-          data,
-          marketId: market.id,
-        }),
-      ]);
+      if (ORDERBOOK[incomingOrder.market.id]) {
+        const currentMarketDepth =
+          ORDERBOOK[incomingOrder.market.id] ?? ({} as AssetOrderBook);
+        getMarketDepth(currentMarketDepth);
+        await publisherClient.send("LPUSH", [
+          "order-updates",
+          JSON.stringify({
+            currentMarketDepth,
+            marketId: market.id,
+          }),
+        ]);
+      }
     } catch (error) {
       data = {
         requestType: "create_order",

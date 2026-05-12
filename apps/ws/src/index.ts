@@ -1,5 +1,10 @@
 import { redis } from "bun";
 
+interface WebSocketData {
+  marketId: string;
+  connectedAt: number;
+}
+
 async function* listenToOrderUpdates() {
   while (true) {
     try {
@@ -12,24 +17,51 @@ async function* listenToOrderUpdates() {
   }
 }
 
-Bun.serve({
+const server = Bun.serve<WebSocketData>({
   port: 4000,
-  fetch(req, serve) {
-    if (serve.upgrade(req)) {
-      return;
+  fetch(req, server) {
+    const url = new URL(req.url);
+    const marketId = url.searchParams.get("marketId");
+
+    // Pass the market (or the whole req info) into the data object
+    if (marketId) {
+      const upgraded = server.upgrade(req, {
+        data: {
+          marketId: marketId,
+          connectedAt: Date.now(),
+        },
+      });
+      if (upgraded) return;
     }
     return new Response("Upgrade Failed", { status: 500 });
   },
   websocket: {
     async open(ws) {
-      console.log("Client is connected, sending order updates from now!");
-      for await (const parsedOrderUpdates of listenToOrderUpdates()) {
-        ws.publish(
-          parsedOrderUpdates.marketId,
-          JSON.stringify(parsedOrderUpdates),
-        );
-      }
+      // Get the user's market from the query string
+      const { marketId } = ws.data;
+      // When a connection is opened, map the ws to the market and store it
+      console.log(`Connected to ${marketId}`);
+      ws.subscribe(marketId);
     },
-    message(ws, message) {},
+    message(ws, message) {
+      console.log(message);
+    },
+    close(ws, code, reason) {
+      console.log(
+        `Disconnected: ${code} ${reason} from the market ${ws.data.marketId}`,
+      );
+    },
   },
 });
+
+console.log(`Server listening on ${server.port}`);
+
+(async () => {
+  for await (const update of listenToOrderUpdates()) {
+    // Send the updated depth to EVERY client subscribed to received marketId
+    server.publish(update.marketId, JSON.stringify(update));
+    console.log(
+      `Sent update to ${update.marketId} with data ${JSON.stringify(update)}`,
+    );
+  }
+})();
