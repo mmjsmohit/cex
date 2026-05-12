@@ -359,7 +359,9 @@ app.post("/assets", authMiddleware, async (req, res) => {
 
 // Get all the assets created
 app.get("/assets", authMiddleware, async (req, res) => {
-  const assets = await prisma.asset.findMany();
+  const assets = await prisma.asset.findMany({
+    where: {},
+  });
   res.status(200).json(assets);
 });
 

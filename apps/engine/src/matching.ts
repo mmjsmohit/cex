@@ -1,3 +1,4 @@
+import { redis } from "bun";
 import { ORDERBOOK } from ".";
 import type { Order, OrderBook } from "./types/orderbook.types";
 import { lockBalances, executeSwap, insertBid, insertAsk } from "./utils";
@@ -16,7 +17,7 @@ function getOrCreateBook(marketId: string): OrderBook[string] {
   return book;
 }
 
-export function processLimitBuy(
+export async function processLimitBuy(
   marketId: string,
   incomingOrder: Order,
   baseAsset: string,
@@ -77,6 +78,9 @@ export function processLimitBuy(
       book!.asks.shift();
     }
   }
+
+  // Push the order to the Snapshot Queue so that it is stored in DB
+  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
 
   // 6. If the incoming buy order wasn't fully filled, add it to the Bids book
   if (remainingQty > 0) {
@@ -140,8 +144,10 @@ export function processLimitSell(
     if (bestBid.filled === bestBid.quantity) {
       book.bids.shift();
     }
-    // TODO: After the fill has happened, emit an event using Redis Queue to let the backend know and store in the DB
   }
+
+  // Push the order to the Snapshot Queue so that it is stored in DB
+  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
 
   // 3. If the incoming sell order wasn't fully filled, add it to the Asks book
   if (remainingQty > 0) {

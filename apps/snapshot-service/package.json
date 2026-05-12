@@ -1,0 +1,16 @@
+{
+  "name": "snapshot-service",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun src/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@repo/db": "workspace:*"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
