@@ -17,7 +17,7 @@ function getOrCreateBook(marketId: string): OrderBook[string] {
   return book;
 }
 
-export async function processLimitBuy(
+export function processLimitBuy(
   marketId: string,
   incomingOrder: Order,
   baseAsset: string,
