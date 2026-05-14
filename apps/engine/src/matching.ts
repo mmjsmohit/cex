@@ -217,6 +217,9 @@ export function processMarketBuy(
       book!.asks.shift();
     }
   }
+
+  // Push the order to the Snapshot Queue so that it is stored in DB
+  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
 }
 
 export function processMarketSell(
@@ -279,4 +282,7 @@ export function processMarketSell(
       book!.bids.shift();
     }
   }
+
+  // Push the order to the Snapshot Queue so that it is stored in DB
+  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
 }
