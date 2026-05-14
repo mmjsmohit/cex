@@ -473,4 +473,5 @@ app.post("/markets", authMiddleware, async (req, res) => {
   });
 });
 
-app.listen(3000);
+const port = Number(process.env.PORT ?? 3000);
+app.listen(port);

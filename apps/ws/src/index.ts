@@ -26,7 +26,7 @@ async function* listenToOrderUpdates() {
 }
 
 const server = Bun.serve<WebSocketData>({
-  port: 4000,
+  port: Number(process.env.PORT ?? 4000),
   fetch(req, server) {
     const url = new URL(req.url);
     const marketId = url.searchParams.get("marketId");
