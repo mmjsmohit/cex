@@ -153,9 +153,7 @@ export default function Home() {
 
     void fetchInitialDepth(selectedMarketId);
 
-    const socketUrl = new URL(
-      process.env.NEXT_PUBLIC_WS_URL ?? defaultWsUrl,
-    );
+    const socketUrl = new URL(process.env.NEXT_PUBLIC_WS_URL ?? defaultWsUrl);
     socketUrl.searchParams.set("marketId", selectedMarketId);
 
     const socket = new WebSocket(socketUrl.toString());
@@ -664,6 +662,7 @@ export default function Home() {
                     }
                   >
                     <option value="LIMIT">LIMIT</option>
+                    <option value="MARKET">MARKET</option>
                   </select>
                 </label>
               </div>

@@ -20,7 +20,7 @@ async function saveSnapshotToDB(parsedResult: any) {
         userId: parsedResult.userId,
         amount: parsedResult.quantity,
         price: parsedResult.price,
-        type: "LIMIT", // TODO: Support Market orders too!
+        type: parsedResult.orderType,
         side: parsedResult.tradeSide,
         marketId: parsedResult.market.id,
         status: getOrderStatus(parsedResult),

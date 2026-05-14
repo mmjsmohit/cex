@@ -1,6 +1,6 @@
 import { BALANCES } from ".";
 import type { UserId } from "./types/balances.types";
-import type { Order } from "./types/orderbook.types";
+import type { Order, OrderType } from "./types/orderbook.types";
 
 function getOrCreateAssetBalance(userId: string, assetId: string) {
   if (!BALANCES[userId]) BALANCES[userId] = [];
@@ -48,8 +48,10 @@ function executeSwap(trade: {
   quoteAsset: string;
   qty: number;
   price: number;
+  orderType: OrderType;
 }) {
-  const { buyerId, sellerId, baseAsset, quoteAsset, qty, price } = trade;
+  const { buyerId, sellerId, baseAsset, quoteAsset, qty, price, orderType } =
+    trade;
   const totalQuoteValue = qty * price;
 
   const buyerBase = getOrCreateAssetBalance(buyerId, baseAsset);
@@ -60,12 +62,19 @@ function executeSwap(trade: {
   // Buyer gets the Base Asset
   buyerBase.amount += qty;
   // Buyer pays Quote Asset from their locked balance
-  buyerQuote.lockedAmount -= totalQuoteValue;
-
+  if (orderType === "LIMIT") {
+    buyerQuote.lockedAmount -= totalQuoteValue;
+  } else {
+    buyerQuote.amount -= totalQuoteValue;
+  }
   // Seller gets Quote Asset
   sellerQuote.amount += totalQuoteValue;
   // Seller gives Base Asset from their locked balance (it was locked when they placed the ASK)
-  sellerBase.lockedAmount -= qty;
+  if (orderType === "LIMIT") {
+    sellerBase.lockedAmount -= qty;
+  } else {
+    sellerBase.amount -= qty;
+  }
 
   // TODO: Send an via Redis so the Express backend can write the trade history to db.
 }
@@ -75,7 +84,7 @@ function insertBid(bids: Order[], order: Order) {
   bids.push(order);
   bids.sort((a, b) => {
     if (b.price === a.price) return a.createdAt - b.createdAt;
-    return b.price - a.price;
+    return b.price! - a.price!;
   });
 }
 
@@ -84,7 +93,7 @@ function insertAsk(asks: Order[], order: Order) {
   asks.push(order);
   asks.sort((a, b) => {
     if (a.price === b.price) return a.createdAt - b.createdAt;
-    return a.price - b.price;
+    return a.price! - b.price!;
   });
 }
 

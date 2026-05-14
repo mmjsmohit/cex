@@ -21,9 +21,10 @@ interface Fill {
 interface Order {
   orderId: string;
   userId: string;
-  price: number;
+  price: number | undefined; // In a MARKET order, price may not be given
   quantity: number;
   filled: number;
+  orderType: OrderType;
   tradeSide: TradeSide;
   createdAt: number;
   market: Market;

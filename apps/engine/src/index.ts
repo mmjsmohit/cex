@@ -11,7 +11,12 @@ import type {
   OrderBook,
   TradeSide,
 } from "./types/orderbook.types";
-import { processLimitBuy, processLimitSell } from "./matching";
+import {
+  processLimitBuy,
+  processLimitSell,
+  processMarketBuy,
+  processMarketSell,
+} from "./matching";
 import { getMarketDepth } from "./depth";
 
 // Define and initiate the clients for pushing and reading from Redis
@@ -57,6 +62,7 @@ async function* incomingMessageStream(subscribingClient: RedisClient) {
 for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
   let data = {};
   const identifier = parsedResponse.identifier;
+
   if (parsedResponse.requestType === "create_order") {
     try {
       const tradeSide = String(parsedResponse.trade_side).toUpperCase();
@@ -71,6 +77,7 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
         quantity: parsedResponse.quantity,
         filled: 0,
         fills: [],
+        orderType: parsedResponse.order_type,
         tradeSide: tradeSide as TradeSide,
         createdAt: Date.now(),
         market: parsedResponse.market,
@@ -79,19 +86,37 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
 
       // Process the incoming order
       if (incomingOrder.tradeSide === "BUY") {
-        processLimitBuy(
-          parsedResponse.market_id,
-          incomingOrder,
-          market.baseAssetId,
-          market.quoteAssetId,
-        );
+        if (incomingOrder.orderType === "LIMIT") {
+          processLimitBuy(
+            parsedResponse.market_id,
+            incomingOrder,
+            market.baseAssetId,
+            market.quoteAssetId,
+          );
+        } else {
+          processMarketBuy(
+            parsedResponse.market_id,
+            incomingOrder,
+            market.baseAssetId,
+            market.quoteAssetId,
+          );
+        }
       } else {
-        processLimitSell(
-          parsedResponse.market_id,
-          incomingOrder,
-          market.baseAssetId,
-          market.quoteAssetId,
-        );
+        if (incomingOrder.orderType === "LIMIT") {
+          processLimitSell(
+            parsedResponse.market_id,
+            incomingOrder,
+            market.baseAssetId,
+            market.quoteAssetId,
+          );
+        } else {
+          processMarketSell(
+            parsedResponse.market_id,
+            incomingOrder,
+            market.baseAssetId,
+            market.quoteAssetId,
+          );
+        }
       }
 
       data = {
