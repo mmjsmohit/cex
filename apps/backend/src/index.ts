@@ -15,6 +15,10 @@ const publisherClient = new RedisClient(process.env.REDIS_URL);
 const app = express();
 app.use(express.json());
 
+app.get("/health", async (req, res) => {
+  res.status(200).send("OK");
+});
+
 app.post("/signup", async (req: Request, res: Response) => {
   const { username, name, password } = req.body;
   // Check if all the values are supplied
@@ -461,7 +465,7 @@ app.post("/markets", authMiddleware, async (req, res) => {
   // Since both the asset exist and a market does not already exist, finally create the new market
   const newMarket = await prisma.market.create({
     data: {
-      name: baseAsset.symbol + "/" + quoteAsset.symbol,
+      name: baseAsset.symbol + "_" + quoteAsset.symbol,
       baseAssetId: baseAsset.id,
       quoteAssetId: quoteAsset.id,
     },
