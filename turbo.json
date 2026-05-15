@@ -19,6 +19,12 @@
       "cache": false,
       "persistent": true
     },
+    "perp-engine#dev": {
+      "dependsOn": ["^db:generate"],
+      "with": ["backend#dev"],
+      "cache": false,
+      "persistent": true
+    },
     "db:generate": {
       "cache": false
     },
