@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/create-next-app).
+# web
 
-## Getting Started
+Next.js web client for exercising and visualizing the CEX backend. The app provides a browser UI for authentication, asset and market creation, balance updates, order placement, order lookup, and realtime depth display.
 
-First, run the development server:
+## Responsibilities
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Render the main CEX debug/trading interface.
+- Store the signed-in JWT in browser local storage.
+- Proxy API calls to `apps/backend` through a Next.js route handler.
+- Display assets, markets, orders, and market depth.
+- Connect to `apps/ws` for realtime depth updates.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Runtime
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Framework: Next.js 16 App Router
+- React: 19
+- Shared UI dependency: `@repo/ui`
+- Shared lint/config dependencies: `@repo/eslint-config`, `@repo/typescript-config`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load Inter, a custom Google Font.
+## Environment variables
 
-## Learn More
+- `BACKEND_URL`: Backend base URL used by `app/api/debug/[...path]/route.ts`. Defaults to `http://localhost:3000`.
+- `NEXT_PUBLIC_WS_URL`: Public websocket URL used by the browser. Defaults in the app to `ws://localhost:4000`.
 
-To learn more about Next.js, take a look at the following resources:
+## Development
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Install dependencies from the repository root with `bun install`, then run this app with `bun --filter web dev` or `bun run dev` from `apps/web`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The development server listens on port `3001`.
 
-## Deploy on Vercel
+## Scripts
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `dev`: Starts Next.js on port `3001`.
+- `build`: Builds the production Next.js app.
+- `start`: Starts the production server.
+- `lint`: Runs ESLint with zero warnings allowed.
+- `check-types`: Generates Next.js types and runs TypeScript with `--noEmit`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## API proxy
+
+The route handler at `app/api/debug/[...path]/route.ts` forwards requests to the backend while preserving:
+
+- HTTP method
+- Query string
+- `Authorization` header
+- `Content-Type` header
+- Request body for non-GET/HEAD methods
+
+This allows the frontend to call `/api/debug/<backend-path>` without hardcoding backend URLs in browser code.
+
+## Realtime depth
+
+The web app connects to the websocket server using the selected market ID. It fetches initial depth through the backend and then updates the displayed book from websocket messages published by `apps/ws`.
+
+## Related services
+
+- `apps/backend`: HTTP API target for the proxy route.
+- `apps/ws`: WebSocket server for depth updates.
+- `apps/engine`: Source of order-book state and updates.
