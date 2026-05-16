@@ -28,13 +28,17 @@ import {
   getOrCreatePositions,
   liquidatePositions,
   waitForBackend,
+  waitForExchangePriceMocker,
 } from "./utils";
 import { processPerpLimitBuy, processPerpLimitSell } from "./perpMatching";
 
 // Define and initiate the clients for pushing and reading from Redis
 const publisherClient = new RedisClient(process.env.REDIS_URL);
 const subscriberClient = new RedisClient(process.env.REDIS_URL);
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3000";
+const IS_MOCK_EXCHANGE =
+  process.env.IS_MOCK === "true" || process.env.IS_MOCK === "1";
+const MOCK_EXCHANGE_WS_URL =
+  process.env.MOCK_EXCHANGE_WS_URL || "ws://localhost:6000";
 
 // Called when successfully connected to Redis server
 publisherClient.onconnect = () => {
@@ -77,8 +81,15 @@ markets.forEach((market) => {
   getOrCreatePositions(market.id);
 });
 
-// Subscribe the incoming market updates from Backpack WS Server
-const exchangeSocket = new WebSocket("wss://ws.backpack.exchange");
+if (IS_MOCK_EXCHANGE) {
+  await waitForExchangePriceMocker();
+}
+
+// Subscribe the incoming market updates from Backpack WS Server or the local mocker
+const exchangeSocket = new WebSocket(
+  IS_MOCK_EXCHANGE ? MOCK_EXCHANGE_WS_URL : "wss://ws.backpack.exchange",
+);
+
 exchangeSocket.addEventListener("open", () => {
   // Build and subscribe to the markets and send the frame to WS
   const streams: string[] = [];
@@ -93,20 +104,43 @@ exchangeSocket.addEventListener("open", () => {
 });
 
 exchangeSocket.addEventListener("message", (event) => {
-  const bookTick: bookTick = JSON.parse(event.data);
-  // Calculate the price from the inside ask and bid price
-  const price = (parseFloat(bookTick.data.a) + parseFloat(bookTick.data.b)) / 2;
+  const bookTick = JSON.parse(event.data.toString()) as bookTick & {
+    type?: string;
+    marketId?: string;
+    price?: number;
+    data?: bookTick["data"] & { marketId?: string; price?: number };
+  };
 
-  const marketId = Object.entries(PERP_ORDERBOOK).find(
-    ([_, orderbook]) => orderbook.symbol === bookTick.data.s,
-  )?.[0];
+  if (bookTick.type === "connected" || bookTick.type === "subscription_ack") {
+    return;
+  }
+
+  const price =
+    typeof bookTick.price === "number"
+      ? bookTick.price
+      : typeof bookTick.data?.price === "number"
+        ? bookTick.data.price
+        : (parseFloat(bookTick.data.a) + parseFloat(bookTick.data.b)) / 2;
+
+  const marketId =
+    bookTick.marketId ??
+    bookTick.data?.marketId ??
+    Object.entries(PERP_ORDERBOOK).find(
+      ([marketId, orderbook]) =>
+        marketId === bookTick.data.s || orderbook.symbol === bookTick.data.s,
+    )?.[0];
+
+  if (!marketId || !PERP_ORDERBOOK[marketId]) {
+    console.error("Received price update for unknown market", bookTick);
+    return;
+  }
 
   // Update the index price of the market in the orderbook
-  PERP_ORDERBOOK[marketId!]!.indexPrice = price;
+  PERP_ORDERBOOK[marketId].indexPrice = price;
 
   // Loop through the positions of this market and calculate the unrealized PnL for each position and check if any position needs to be liquidated
   const needLiquidation: Position[] = [];
-  const marketPositions = PERP_POSITIONS[marketId!];
+  const marketPositions = PERP_POSITIONS[marketId];
 
   marketPositions?.forEach((position, idx) => {
     let pnl: number = 0;

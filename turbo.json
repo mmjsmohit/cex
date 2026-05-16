@@ -1,7 +1,14 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
-  "globalEnv": ["DATABASE_URL", "BACKEND_URL", "NEXT_PUBLIC_WS_URL"],
+  "globalEnv": [
+    "DATABASE_URL",
+    "BACKEND_URL",
+    "NEXT_PUBLIC_WS_URL",
+    "IS_MOCK",
+    "MOCK_EXCHANGE_WS_URL",
+    "MOCK_EXCHANGE_HEALTH_URL"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build", "^db:generate"],
@@ -21,7 +28,11 @@
     },
     "perp-engine#dev": {
       "dependsOn": ["^db:generate"],
-      "with": ["backend#dev"],
+      "with": ["backend#dev", "exchange-price-mocker#dev"],
+      "cache": false,
+      "persistent": true
+    },
+    "exchange-price-mocker#dev": {
       "cache": false,
       "persistent": true
     },

@@ -12,9 +12,30 @@ import type { Position } from "./types/positions.types";
 import { randomUUID } from "crypto";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3000";
+const MOCK_EXCHANGE_HEALTH_URL =
+  process.env.MOCK_EXCHANGE_HEALTH_URL || "http://localhost:6000/health";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function waitForExchangePriceMocker() {
+  console.log("Waiting for exchange-price-mocker to accept subscriptions...");
+
+  while (true) {
+    try {
+      const response = await fetch(MOCK_EXCHANGE_HEALTH_URL);
+
+      if (response.ok) {
+        console.log("exchange-price-mocker is ready");
+        return;
+      }
+    } catch {
+      // Keep polling until the mocker has started.
+    }
+
+    await sleep(500);
+  }
 }
 
 export async function waitForBackend(): Promise<
