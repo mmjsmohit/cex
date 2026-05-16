@@ -112,13 +112,27 @@ app.post("/signin", async (req: Request, res: Response) => {
 // 500001
 app.post("/order", authMiddleware, async (req, res) => {
   const userId = req.userId;
-  const { price, quantity, market_id, trade_side, order_type } = req.body;
+  const {
+    price,
+    quantity,
+    margin,
+    leverage,
+    market_id,
+    trade_side,
+    order_type,
+    market_type,
+  } = req.body;
   let identifier = randomUUID();
   const normalizedTradeSide = String(trade_side).toUpperCase();
 
-  if (normalizedTradeSide !== "BUY" && normalizedTradeSide !== "SELL") {
+  if (
+    normalizedTradeSide !== "BUY" &&
+    normalizedTradeSide !== "SELL" &&
+    normalizedTradeSide !== "SHORT" &&
+    normalizedTradeSide !== "LONG"
+  ) {
     return res.status(400).json({
-      message: "trade_side must be BUY or SELL",
+      message: "trade_side must be BUY, SELL, LONG or SHORT",
     });
   }
 
@@ -135,21 +149,41 @@ app.post("/order", authMiddleware, async (req, res) => {
   }
 
   const loopbackResponsePromise = getLoopbackResponse(identifier);
-  await publisherClient.send("LPUSH", [
-    "incoming-orders",
-    JSON.stringify({
-      orderId: identifier,
-      userId,
-      requestType: "create_order",
-      price,
-      quantity,
-      market_id,
-      trade_side: normalizedTradeSide,
-      order_type,
-      market,
-      queue_id: QUEUE_ID,
-    }),
-  ]);
+  if (market_type === "SPOT") {
+    await publisherClient.send("LPUSH", [
+      "incoming-orders",
+      JSON.stringify({
+        orderId: identifier,
+        userId,
+        requestType: "create_order",
+        price,
+        quantity,
+        market_id,
+        trade_side: normalizedTradeSide,
+        order_type,
+        market,
+        queue_id: QUEUE_ID,
+      }),
+    ]);
+  } else {
+    await publisherClient.send("LPUSH", [
+      "perp-incoming-orders",
+      JSON.stringify({
+        orderId: identifier,
+        userId,
+        requestType: "create_order",
+        entryPrice: price,
+        quantity,
+        market_id,
+        trade_side: normalizedTradeSide,
+        order_type,
+        market,
+        margin,
+        leverage,
+        queue_id: QUEUE_ID,
+      }),
+    ]);
+  }
 
   const loopbackResponse = await loopbackResponsePromise;
   res.json({
@@ -329,6 +363,32 @@ app.post("/balance", authMiddleware, async (req, res) => {
   });
 });
 
+// Add some collateral to a market for perp trading
+app.post("/onramp", authMiddleware, async (req, res) => {
+  const userId = req.userId;
+  const { marketId, amount } = req.body;
+  const identifier = randomUUID();
+  const loopbackResponsePromise = getLoopbackResponse(identifier);
+  await publisherClient.send("LPUSH", [
+    "collaterals",
+    JSON.stringify({
+      requestType: "add_collateral",
+      userId,
+      marketId,
+      amount,
+      identifier,
+      queue_id: QUEUE_ID,
+    }),
+  ]);
+
+  const loopbackResponse = await loopbackResponsePromise;
+  res.json({
+    message: "Balance Added Successfully",
+    identifier,
+    loopbackResponse,
+  });
+});
+
 // Gets the user's balance in USD
 app.get("/balance/usd", authMiddleware, async (req, res) => {
   const userId = req.userId;
@@ -372,6 +432,29 @@ app.get("/balance", authMiddleware, async (req, res) => {
   const loopbackResponse = await loopbackResponsePromise;
   res.json({
     message: "Balance Retrieved Successfully",
+    identifier,
+    loopbackResponse,
+  });
+});
+
+// Gets the available collateral for the user in all markets
+app.get("/equity/available", authMiddleware, async (req, res) => {
+  const userId = req.userId;
+  const identifier = randomUUID();
+  const loopbackResponsePromise = getLoopbackResponse(identifier);
+  await publisherClient.send("LPUSH", [
+    "collaterals",
+    JSON.stringify({
+      requestType: "get_available_equity",
+      userId,
+      identifier,
+      queue_id: QUEUE_ID,
+    }),
+  ]);
+
+  const loopbackResponse = await loopbackResponsePromise;
+  res.json({
+    message: "Equity Fetched Successfully",
     identifier,
     loopbackResponse,
   });

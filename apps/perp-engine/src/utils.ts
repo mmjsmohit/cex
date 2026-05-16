@@ -61,7 +61,7 @@ export function lockCollateral(
   amountToLock: number,
   marketId: string,
 ) {
-  const userCollateral = getOrCreateAssetCollateral(userId, assetId);
+  const userCollateral = getOrCreateAssetCollateral(userId, marketId);
 
   // Check if the user has enough balance to be locked.
   if (userCollateral.amount < amountToLock) {
@@ -75,10 +75,10 @@ export function lockCollateral(
 
 export function consumeLockedCollateral(
   userId: string,
-  assetId: string,
+  marketId: string,
   amountToConsume: number,
 ) {
-  const userCollateral = getOrCreateAssetCollateral(userId, assetId);
+  const userCollateral = getOrCreateAssetCollateral(userId, marketId);
   if (userCollateral.lockedAmount < amountToConsume) {
     throw new Error("Insufficient locked collateral");
   }
@@ -88,12 +88,12 @@ export function consumeLockedCollateral(
 
 export function releaseLockedCollateral(
   userId: string,
-  assetId: string,
+  marketId: string,
   amountToRelease: number,
 ) {
   if (amountToRelease <= 0) return;
 
-  const userCollateral = getOrCreateAssetCollateral(userId, assetId);
+  const userCollateral = getOrCreateAssetCollateral(userId, marketId);
   const releasableAmount = Math.min(
     amountToRelease,
     userCollateral.lockedAmount,
@@ -105,7 +105,6 @@ export function releaseLockedCollateral(
 export function matchPerpSwap(trade: {
   longerId: string;
   shorterId: string;
-  quoteAsset: string;
   qty: number;
   price: number;
   orderType: OrderType;
@@ -116,7 +115,6 @@ export function matchPerpSwap(trade: {
   const {
     longerId,
     shorterId,
-    quoteAsset,
     qty,
     price,
     market,
@@ -127,8 +125,8 @@ export function matchPerpSwap(trade: {
   const longerMargin = calculateInitialMargin(qty, price, longerLeverage);
   const shorterMargin = calculateInitialMargin(qty, price, shorterLeverage);
 
-  consumeLockedCollateral(longerId, quoteAsset, longerMargin);
-  consumeLockedCollateral(shorterId, quoteAsset, shorterMargin);
+  consumeLockedCollateral(longerId, market.id, longerMargin);
+  consumeLockedCollateral(shorterId, market.id, shorterMargin);
 
   // Entry price = matched price at the time of trade execution.
   const entryPrice = price;
@@ -160,16 +158,16 @@ export function matchPerpSwap(trade: {
   // TODO: Send an event via Redis so the Express backend can write trade history to DB.
 }
 
-export function getOrCreateAssetCollateral(userId: string, assetId: string) {
+export function getOrCreateAssetCollateral(userId: string, marketId: string) {
   if (!COLLATERALS[userId]) COLLATERALS[userId] = [];
 
   let userCollateral = COLLATERALS[userId].find((collateral) => {
-    return collateral.assetId === assetId;
+    return collateral.marketId === marketId;
   });
 
   if (!userCollateral) {
     userCollateral = {
-      assetId: assetId,
+      marketId: marketId,
       amount: 0,
       lockedAmount: 0,
     };
@@ -256,7 +254,16 @@ export function insertBid(bids: PerpOrder[], order: PerpOrder) {
   // Sort descending by price. If prices are equal, sort by time (oldest first)
   bids.push(order);
   bids.sort((a, b) => {
-    if (b.price === a.price) return a.createdAt - b.createdAt;
-    return b.price! - a.price!;
+    if (b.entryPrice === a.entryPrice) return a.createdAt - b.createdAt;
+    return b.entryPrice! - a.entryPrice!;
+  });
+}
+
+export function insertAsk(asks: PerpOrder[], order: PerpOrder) {
+  // Sort ascending by price. If prices are equal, sort by time (oldest first)
+  asks.push(order);
+  asks.sort((a, b) => {
+    if (a.entryPrice === b.entryPrice) return a.createdAt - b.createdAt;
+    return a.entryPrice! - b.entryPrice!;
   });
 }

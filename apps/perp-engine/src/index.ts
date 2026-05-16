@@ -25,7 +25,7 @@ import type {
 import type { bookTick } from "./types/tick.types";
 import type { Position } from "./types/positions.types";
 import { getOrCreatePositions, waitForBackend } from "./utils";
-import { processPerpLimitBuy } from "./perpMatching";
+import { processPerpLimitBuy, processPerpLimitSell } from "./perpMatching";
 
 // Define and initiate the clients for pushing and reading from Redis
 const publisherClient = new RedisClient(process.env.REDIS_URL);
@@ -131,7 +131,7 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
       const incomingOrder: PerpOrder = {
         orderId: parsedResponse.orderId,
         userId: parsedResponse.userId,
-        price: parsedResponse.price,
+        entryPrice: parsedResponse.entryPrice,
         quantity: parsedResponse.quantity,
         filled: 0,
         fills: [],
@@ -148,20 +148,14 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
       // Process the incoming order
       if (incomingOrder.tradeSide === "LONG") {
         if (incomingOrder.orderType === "LIMIT") {
-          // TODO
-          processPerpLimitBuy(
-            incomingOrder.market.id,
-            incomingOrder,
-            incomingOrder.market.quoteAssetId,
-          );
+          processPerpLimitBuy(incomingOrder);
         } else {
           // TODO
           // processPerpMarketBuy();
         }
       } else {
         if (incomingOrder.orderType === "LIMIT") {
-          // TODO
-          // processPerpLimitSell();
+          processPerpLimitSell(incomingOrder);
         } else {
           // TODO
           // processPerpMarketSell();
@@ -172,7 +166,7 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
         requestType: "create_order",
         identifier: incomingOrder.orderId,
         order: incomingOrder,
-        orderbook: PERP_ORDERBOOK[parsedResponse.market_id],
+        orderbook: PERP_ORDERBOOK[market.id],
       };
 
       // Publish to the WS server
@@ -195,6 +189,48 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
           error instanceof Error ? error.message : "Failed to create order",
       };
     }
+  }
+
+  if (parsedResponse.requestType === "add_collateral") {
+    let finalBalance: number;
+    const { userId, marketId, amount } = parsedResponse;
+    if (!COLLATERALS[userId]) COLLATERALS[userId] = [];
+
+    // Check if the user already has a collateral, and update it if so
+    // TODO: Migrate to using the ID of the USD Asset in DB
+    const previousBalance = COLLATERALS[userId]?.find(
+      (collateral) => collateral.marketId === marketId,
+    );
+    if (previousBalance) {
+      finalBalance = previousBalance.amount + amount;
+      previousBalance.amount = finalBalance;
+    } else {
+      finalBalance = amount;
+      COLLATERALS[userId].push({
+        marketId: marketId,
+        amount: finalBalance,
+        lockedAmount: 0,
+      });
+    }
+
+    data = {
+      type: "add_collateral",
+      userId,
+      marketId,
+      finalBalance,
+      identifier,
+    };
+  }
+
+  if (parsedResponse.requestType === "get_available_equity") {
+    // Map through all the markets and find out the collaterals for the user
+    const { userId } = parsedResponse;
+    data = {
+      type: "get_available_equity",
+      userId,
+      collaterals: COLLATERALS[userId] ?? [],
+      identifier,
+    };
   }
 
   // if (parsedResponse.requestType === "get_depth") {
@@ -402,7 +438,6 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
   //     identifier,
   //   };
   // }
-
   await publisherClient.send("LPUSH", [
     "response-queue-" + parsedResponse.queue_id,
     JSON.stringify(data),

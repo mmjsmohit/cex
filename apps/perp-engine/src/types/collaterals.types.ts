@@ -1,7 +1,7 @@
 type UserId = string;
 
 interface Collateral {
-  assetId: string;
+  marketId: string;
   amount: number;
   lockedAmount: number;
 }

@@ -44,7 +44,6 @@ async function handleRedisResponse() {
     try {
       const result = await redis.brpop("snapshot-queue", 0);
       const parsedResult = JSON.parse(result?.[1]!);
-      console.log(parsedResult);
       await saveSnapshotToDB(parsedResult);
     } catch (err) {
       console.error("Redis listener error:", err);

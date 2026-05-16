@@ -22,7 +22,7 @@ interface PerpOrder {
   userId: string;
   orderId: string;
   market: Market;
-  price: number | undefined; // In a MARKET order, price may not be given
+  entryPrice: number | undefined; // In a MARKET order, price may not be given
   quantity: number;
   margin: number;
   filled: number;

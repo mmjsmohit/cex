@@ -54,7 +54,6 @@ const server = Bun.serve<WebSocketData>({
       // Send the user the current depth of the market when they connect initially
       const depth = await fetch(`${process.env.BACKEND_URL}/depth/${marketId}`);
       const depthData = await depth.json();
-      console.log("here");
       ws.send(JSON.stringify(depthData));
     },
     message(ws, message) {
