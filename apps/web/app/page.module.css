@@ -5,6 +5,18 @@
   color: #161a22;
 }
 
+.loadingState {
+  max-width: 640px;
+  margin: 40px auto 0;
+  border: 1px solid #d9dee8;
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  color: #475467;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .header {
   display: flex;
   align-items: center;
@@ -61,6 +73,33 @@
   background: #16825d;
 }
 
+.authShell,
+.hubLayout {
+  display: grid;
+  gap: 20px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.authShell {
+  grid-template-columns: minmax(0, 0.85fr) minmax(360px, 1.15fr);
+}
+
+.hubLayout {
+  grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
+  align-items: start;
+}
+
+.hubPanels {
+  display: grid;
+  gap: 16px;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
@@ -91,6 +130,14 @@
 
 .controls .panel:nth-child(5) {
   order: -1;
+}
+
+.consoleNavRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 1440px;
+  margin: 0 auto 18px;
 }
 
 .panel h2 {
@@ -175,6 +222,19 @@
   font-weight: 700;
 }
 
+.consoleNavRow button {
+  min-height: 34px;
+  border: 1px solid #cfd6e4;
+  border-radius: 6px;
+  padding: 0 11px;
+  background: #ffffff;
+  color: #1f2937;
+  cursor: pointer;
+  font-family: var(--font-geist-sans);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .buttonRow button:first-child {
   border-color: #1f2937;
   background: #1f2937;
@@ -182,6 +242,11 @@
 }
 
 .buttonRow button:hover:not(:disabled) {
+  border-color: #2563eb;
+  color: #174ea6;
+}
+
+.consoleNavRow button:hover:not(:disabled) {
   border-color: #2563eb;
   color: #174ea6;
 }
@@ -199,6 +264,13 @@
 .hint {
   margin: 0;
   color: #9a3412;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hintNeutral {
+  margin: 0;
+  color: #475467;
   font-size: 12px;
   font-weight: 600;
 }
@@ -433,6 +505,167 @@
   font-family: var(--font-geist-mono);
 }
 
+.marketSummary {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e4e7ec;
+  border-radius: 6px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.marketSummary h3,
+.marketCardHeader h3 {
+  margin: 0;
+  color: #111827;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.marketSummary p,
+.marketCardHeader p {
+  margin: 0;
+  color: #667085;
+  font-size: 12px;
+}
+
+.marketCardList,
+.equityList {
+  display: grid;
+  gap: 12px;
+}
+
+.marketCard {
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.marketCardHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.marketCardId {
+  max-width: 200px;
+  overflow-wrap: anywhere;
+  color: #667085;
+  font-family: var(--font-geist-mono);
+  font-size: 11px;
+}
+
+.marketActionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.primaryLinkButton,
+.secondaryLinkButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border-radius: 6px;
+  padding: 0 11px;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.primaryLinkButton {
+  border: 1px solid #1f2937;
+  background: #1f2937;
+  color: #ffffff;
+}
+
+.secondaryLinkButton {
+  border: 1px solid #cfd6e4;
+  background: #ffffff;
+  color: #1f2937;
+}
+
+.primaryLinkButton:hover,
+.secondaryLinkButton:hover {
+  border-color: #2563eb;
+}
+
+.marketChipGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.marketChip {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+
+.marketChip strong {
+  color: #111827;
+  font-size: 13px;
+}
+
+.marketChip span {
+  color: #667085;
+  font-size: 12px;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metricCard {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.metricCard span {
+  color: #667085;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.metricCard strong,
+.equityRow strong {
+  color: #111827;
+  font-family: var(--font-geist-mono);
+  font-size: 14px;
+}
+
+.equityRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+
+.equityRow span {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .emptyDepth {
   min-height: 42px;
   padding: 12px 10px;
@@ -443,6 +676,8 @@
 }
 
 @media (max-width: 1100px) {
+  .authShell,
+  .hubLayout,
   .layout {
     grid-template-columns: 1fr;
   }
@@ -468,5 +703,16 @@
 
   .inlineGrid {
     grid-template-columns: 1fr;
+  }
+
+  .metricGrid,
+  .marketChipGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .marketCardHeader,
+  .equityRow {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

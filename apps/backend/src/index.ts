@@ -17,6 +17,18 @@ const publisherClient = new RedisClient(process.env.REDIS_URL);
 const app = express();
 app.use(express.json());
 
+function resolveGetMarketType(req: Request): MarketType {
+  const queryMarketType = Array.isArray(req.query.marketType)
+    ? req.query.marketType[0]
+    : req.query.marketType;
+
+  if (queryMarketType === "SPOT" || queryMarketType === "PERP") {
+    return queryMarketType;
+  }
+
+  return req.body?.marketType === "PERP" ? "PERP" : "SPOT";
+}
+
 app.get("/health", async (req, res) => {
   res.status(200).send("OK");
 });
@@ -198,7 +210,7 @@ app.post("/order", authMiddleware, async (req, res) => {
 // Get all orders for the user
 app.get("/orders", authMiddleware, async (req, res) => {
   const userId = req.userId;
-  const marketType: MarketType = req.body.marketType;
+  const marketType = resolveGetMarketType(req);
   let requestId = randomUUID();
 
   const loopbackResponsePromise = getLoopbackResponse(requestId);
@@ -238,11 +250,7 @@ app.get("/orders", authMiddleware, async (req, res) => {
 app.get("/order/:orderId", authMiddleware, async (req, res) => {
   const userId = req.userId;
   const orderId = req.params.orderId;
-  const {
-    marketType,
-  }: {
-    marketType: MarketType;
-  } = req.body;
+  const marketType = resolveGetMarketType(req);
 
   const requestId = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(requestId);
@@ -323,11 +331,7 @@ app.delete("/order/:orderId", authMiddleware, async (req, res) => {
 // Get the orderbook depth for a given symbol, e.g., SOL/USD
 app.get("/depth/:marketId", async (req, res) => {
   const marketId = req.params.marketId;
-  const {
-    marketType,
-  }: {
-    marketType: MarketType;
-  } = req.body;
+  const marketType = resolveGetMarketType(req);
 
   const requestId = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(requestId);

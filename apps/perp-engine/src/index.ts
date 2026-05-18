@@ -259,58 +259,83 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
   if (parsedResponse.requestType === "delete_order") {
     const { userId, orderId, identifier } = parsedResponse;
     try {
-      // Obtain the order to be deleted
-      const targetOrder: PerpOrder | undefined = Object.entries(
-        PERP_ORDERBOOK,
-      ).map(([_, orderbook]) =>
-        // Spread all the bids and asks in a single array and filter the required order
-        [...orderbook.bids, ...orderbook.asks].find(
-          (order) => order.userId === userId && order.orderId === orderId,
-        ),
-      )[0];
+      let targetOrder: PerpOrder | undefined;
+      let targetBook: PerpAssetOrderBook | undefined;
 
-      if (targetOrder) {
+      for (const orderbook of Object.values(PERP_ORDERBOOK)) {
+        const matchedOrder = [...orderbook.bids, ...orderbook.asks].find(
+          (order) => order.userId === userId && order.orderId === orderId,
+        );
+
+        if (matchedOrder) {
+          targetOrder = matchedOrder;
+          targetBook = orderbook;
+          break;
+        }
+      }
+
+      if (targetOrder && targetBook) {
         // Check the trade side of the order (LONG/SHORT)
         if (targetOrder.tradeSide === "LONG") {
           // Since we are cancelling a futures order, we should unlock the margin and send it to the user's collateral balance
-          const orderIndex = PERP_ORDERBOOK[
-            targetOrder.market.id
-          ]?.bids.findIndex((order) => order.orderId === targetOrder.orderId);
-          if (orderIndex != undefined) {
-            PERP_ORDERBOOK[targetOrder.market.id]?.bids.splice(orderIndex, 1);
+          const orderIndex = targetBook.bids.findIndex(
+            (order) => order.orderId === targetOrder.orderId,
+          );
+          if (orderIndex < 0) {
+            throw new Error("Order was not found in the bid book");
           }
+          targetBook.bids.splice(orderIndex, 1);
 
-          // Unlock the locked quote asset of the user
+          // Unlock only the reserved collateral for this order.
           const collateralBalance = COLLATERALS[userId]?.find(
-            (collateral) => collateral.marketId === targetOrder.orderId,
+            (collateral) => collateral.marketId === targetOrder.market.id,
           );
           if (collateralBalance) {
-            collateralBalance.amount += collateralBalance?.lockedAmount;
-            collateralBalance.lockedAmount = 0;
+            const releasableAmount = Math.min(
+              targetOrder.margin,
+              collateralBalance.lockedAmount,
+            );
+            collateralBalance.amount += releasableAmount;
+            collateralBalance.lockedAmount -= releasableAmount;
           }
         } else {
           // Since we are cancelling a futures order, we should unlock the margin and send it to the user's collateral balance
-          const orderIndex = PERP_ORDERBOOK[
-            targetOrder.market.id
-          ]?.asks.findIndex((order) => order.orderId === targetOrder.orderId);
-          if (orderIndex != undefined) {
-            PERP_ORDERBOOK[targetOrder.market.id]?.asks.splice(orderIndex, 1);
+          const orderIndex = targetBook.asks.findIndex(
+            (order) => order.orderId === targetOrder.orderId,
+          );
+          if (orderIndex < 0) {
+            throw new Error("Order was not found in the ask book");
           }
+          targetBook.asks.splice(orderIndex, 1);
 
-          // Unlock the locked quote asset of the user
+          // Unlock only the reserved collateral for this order.
           const collateralBalance = COLLATERALS[userId]?.find(
-            (collateral) => collateral.marketId === targetOrder.orderId,
+            (collateral) => collateral.marketId === targetOrder.market.id,
           );
           if (collateralBalance) {
-            collateralBalance.amount += collateralBalance?.lockedAmount;
-            collateralBalance.lockedAmount = 0;
+            const releasableAmount = Math.min(
+              targetOrder.margin,
+              collateralBalance.lockedAmount,
+            );
+            collateralBalance.amount += releasableAmount;
+            collateralBalance.lockedAmount -= releasableAmount;
           }
         }
 
+        await publisherClient.send("LPUSH", [
+          "perp-order-updates",
+          JSON.stringify({
+            currentMarketDepth: targetBook,
+            marketId: targetOrder.market.id,
+          }),
+        ]);
+
         data = {
-          type: "delete_orders",
+          type: "delete_order",
           identifier,
-          message: "Order deleted successfully and balance has been updated",
+          orderId,
+          marketId: targetOrder.market.id,
+          message: "Order deleted successfully and collateral has been updated",
         };
       } else {
         throw Error(
@@ -319,7 +344,7 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
       }
     } catch (error) {
       data = {
-        type: "delete_orders",
+        type: "delete_order",
         identifier,
         error: error instanceof Error ? error.message : "Something went wrong",
       };

@@ -13,7 +13,7 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   title: "CEX Debug Console",
-  description: "Debug console for the centralized exchange API",
+  description: "Debug consoles for the centralized exchange API",
 };
 
 export default function RootLayout({
