@@ -537,6 +537,30 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
     }
   }
 
+  if (parsedResponse.requestType === "get_open_positions") {
+    const userId = parsedResponse.userId;
+    const marketId = parsedResponse.marketId;
+    const identifier = parsedResponse.identifier;
+
+    try {
+      const userPositions = Object.values(PERP_POSITIONS[marketId]!).filter(
+        (position) => position.userId === userId,
+      );
+
+      // Add userOrders to the response
+      data = {
+        type: "get_open_positions",
+        identifier,
+        positions: userPositions,
+      };
+    } catch (error) {
+      data = {
+        type: "get_open_positions",
+        identifier,
+        error: error instanceof Error ? error.message : "Something went wrong",
+      };
+    }
+  }
   // if (parsedResponse.requestType === "get_balance") {
   //   const { userId, identifier } = parsedResponse;
   //   const balance = BALANCES[userId];

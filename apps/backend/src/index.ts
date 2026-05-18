@@ -632,5 +632,29 @@ app.post("/markets", authMiddleware, async (req, res) => {
   });
 });
 
+app.get("/positions/open/:marketId", authMiddleware, async (req, res) => {
+  const userId = req.userId;
+  const marketId = req.params.marketId;
+  const identifier = randomUUID();
+  const loopbackResponsePromise = getLoopbackResponse(identifier);
+  await publisherClient.send("LPUSH", [
+    "perp-incoming-orders",
+    JSON.stringify({
+      requestType: "get_open_positions",
+      userId,
+      marketId,
+      identifier,
+      queue_id: QUEUE_ID,
+    }),
+  ]);
+
+  const loopbackResponse = await loopbackResponsePromise;
+  res.json({
+    message: "Positions Fetched Successfully",
+    identifier,
+    loopbackResponse,
+  });
+});
+
 const port = Number(process.env.PORT ?? 3000);
 app.listen(port);
