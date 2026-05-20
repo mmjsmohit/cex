@@ -3,10 +3,16 @@
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
+  schemas  = ["public", "_timescaledb_internal"]
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum MarketType {
+  PERP
+  SPOT
 }
 
 enum TradeSide {
@@ -41,7 +47,9 @@ model User {
 
   userAssetBalances userAssetBalance[]
   orderHistories    OrderHistory[]
-  fills             Fills[]
+  // Point these back to the respective named relations in Fills
+  makerFills        Fills[]            @relation("MakerFills")
+  takerFills        Fills[]            @relation("TakerFills")
 }
 
 model Asset {
@@ -62,6 +70,7 @@ model Market {
   baseAsset      Asset?         @relation("BaseAsset", fields: [baseAssetId], references: [id])
   quoteAsset     Asset?         @relation("QuoteAsset", fields: [quoteAssetId], references: [id])
   orderHistories OrderHistory[]
+  fills          Fills[]
 }
 
 model userAssetBalance {
@@ -75,32 +84,41 @@ model userAssetBalance {
 
 // The intended orders of the user
 model OrderHistory {
-  id        String      @id @default(uuid())
+  id        String      @id @default(uuid()) // Reverted back to standalone standard PK
   amount    Float
   price     Float
   type      OrderType
   side      TradeSide
   userId    String
   marketId  String
-  fills     Fills[]
   status    OrderStatus
   timestamp DateTime    @default(now())
   user      User        @relation(fields: [userId], references: [id])
   market    Market      @relation(fields: [marketId], references: [id])
 }
 
-// The actual fills done in the market for a particular order placed by the user
 model Fills {
-  id              String       @id @default(uuid())
-  user            User         @relation(fields: [userId], references: [id])
-  amount          Float
-  price           Float
-  type            OrderType
-  side            TradeSide
-  liquidType      LiquidType
-  userId          String
-  originalOrder   OrderHistory @relation(fields: [originalOrderId], references: [id])
-  originalOrderId String
-  fee             Float
-  timestamp       DateTime     @default(now())
+  id                     String     @default(uuid())
+  makerUser              User       @relation("MakerFills", fields: [makerUserId], references: [id])
+  takerUser              User       @relation("TakerFills", fields: [takerUserId], references: [id])
+  market                 Market     @relation(fields: [marketId], references: [id])
+  amount                 Float
+  price                  Float
+  type                   OrderType
+  marketType             MarketType
+  side                   TradeSide
+  liquidType             LiquidType
+  makerUserId            String
+  takerUserId            String
+  marketId               String
+  // Kept as plain scalar fields for application-level tracking
+  // without database-level Foreign Key constraints
+  originalOrderId        String
+  originalOrderTimestamp DateTime
+
+  fee       String // Tip: Float is risky for financial balances, consider Decimal/String for production
+  timestamp DateTime @default(now())
+
+  // Required by TimescaleDB: The time column must be in the Primary Key
+  @@id([id, timestamp])
 }

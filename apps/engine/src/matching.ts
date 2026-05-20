@@ -78,10 +78,26 @@ export function processLimitBuy(
     if (bestAsk!.filled === bestAsk!.quantity) {
       book!.asks.shift();
     }
-  }
 
-  // Push the order to the Snapshot Queue so that it is stored in DB
-  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
+    console.log("Fill pushed to DB");
+    // Push the order to the Snapshot Queue so that it is stored in DB
+    redis.lpush(
+      "snapshot-queue",
+      JSON.stringify({
+        takerUserId: incomingOrder.userId,
+        makerUserId: bestAsk!.userId,
+        amount: incomingOrder.quantity,
+        price: incomingOrder.price,
+        marketType: "SPOT",
+        side: incomingOrder.tradeSide,
+        liquidType: "TAKER",
+        originalOrderId: incomingOrder.orderId,
+        originalOrderTimestamp: incomingOrder.createdAt,
+        marketId: incomingOrder.market.id,
+        type: incomingOrder.orderType,
+      }),
+    );
+  }
 
   // 6. If the incoming buy order wasn't fully filled, add it to the Bids book
   if (remainingQty > 0) {
@@ -146,11 +162,26 @@ export function processLimitSell(
     if (bestBid.filled === bestBid.quantity) {
       book.bids.shift();
     }
+
+    // Push the order to the Snapshot Queue so that it is stored in DB
+    redis.lpush(
+      "snapshot-queue",
+      JSON.stringify({
+        takerUserId: incomingOrder.userId,
+        makerUserId: bestBid!.userId,
+        amount: incomingOrder.quantity,
+        price: incomingOrder.price,
+        marketType: "SPOT",
+        side: incomingOrder.tradeSide,
+        liquidType: "MAKER",
+        originalOrderId: incomingOrder.orderId,
+        originalOrderTimestamp: incomingOrder.createdAt,
+        marketId: incomingOrder.market.id,
+        type: incomingOrder.orderType,
+      }),
+    );
   }
-
-  // Push the order to the Snapshot Queue so that it is stored in DB
-  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
-
+  console.log("Fill pushed to DB");
   // 3. If the incoming sell order wasn't fully filled, add it to the Asks book
   if (remainingQty > 0) {
     insertAsk(book.asks, incomingOrder);
@@ -216,6 +247,23 @@ export function processMarketBuy(
     if (bestAsk!.filled === bestAsk!.quantity) {
       book!.asks.shift();
     }
+
+    redis.lpush(
+      "snapshot-queue",
+      JSON.stringify({
+        takerUserId: incomingOrder.userId,
+        makerUserId: bestAsk!.userId,
+        amount: incomingOrder.quantity,
+        price: incomingOrder.price,
+        marketType: "SPOT",
+        side: incomingOrder.tradeSide,
+        liquidType: "MAKER",
+        originalOrderId: incomingOrder.orderId,
+        originalOrderTimestamp: incomingOrder.createdAt,
+        marketId: incomingOrder.market.id,
+        type: incomingOrder.orderType,
+      }),
+    );
   }
 
   // Push the order to the Snapshot Queue so that it is stored in DB
@@ -281,6 +329,23 @@ export function processMarketSell(
     if (bestBid!.filled === bestBid!.quantity) {
       book!.bids.shift();
     }
+
+    redis.lpush(
+      "snapshot-queue",
+      JSON.stringify({
+        takerUserId: incomingOrder.userId,
+        makerUserId: bestBid!.userId,
+        amount: incomingOrder.quantity,
+        price: incomingOrder.price,
+        marketType: "SPOT",
+        side: incomingOrder.tradeSide,
+        liquidType: "MAKER",
+        originalOrderId: incomingOrder.orderId,
+        originalOrderTimestamp: incomingOrder.createdAt,
+        marketId: incomingOrder.market.id,
+        type: incomingOrder.orderType,
+      }),
+    );
   }
 
   // Push the order to the Snapshot Queue so that it is stored in DB

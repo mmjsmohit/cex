@@ -392,7 +392,7 @@ app.get("/fills", authMiddleware, async (req, res) => {
   const userId = req.userId;
   const fills = await prisma.fills.findMany({
     where: {
-      userId: userId,
+      makerUserId: userId,
     },
   });
   res.status(200).json({

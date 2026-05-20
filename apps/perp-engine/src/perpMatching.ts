@@ -117,10 +117,26 @@ export function processPerpLimitBuy(incomingOrder: PerpOrder) {
       filledAt: now,
     });
 
+    // Push incomingOrder fills to the snapshot service to be stored in the DB
+    redis.lpush(
+      "snapshot-queue",
+      JSON.stringify({
+        takerUserId: incomingOrder.userId,
+        makerUserId: bestAsk!.userId,
+        amount: incomingOrder.quantity,
+        price: incomingOrder.entryPrice,
+        marketType: "PERP",
+        side: incomingOrder.tradeSide,
+        liquidType: "TAKER",
+        originalOrderId: incomingOrder.orderId,
+        originalOrderTimestamp: incomingOrder.createdAt,
+        marketId: incomingOrder.market.id,
+      }),
+    );
+
     // 5. Remove fully filled maker orders from the book and persist their final state
     if (bestAsk!.filled >= bestAsk!.quantity) {
       book.asks.shift();
-      redis.lpush("snapshot-queue", JSON.stringify(bestAsk));
     }
   }
 
@@ -258,15 +274,28 @@ export function processPerpLimitSell(incomingOrder: PerpOrder) {
       filledAt: now,
     });
 
+    // Push incomingOrder fills to the snapshot service to be stored in the DB
+    redis.lpush(
+      "snapshot-queue",
+      JSON.stringify({
+        takerUserId: incomingOrder.userId,
+        makerUserId: bestBid!.userId,
+        amount: incomingOrder.quantity,
+        price: incomingOrder.entryPrice,
+        marketType: "PERP",
+        side: incomingOrder.tradeSide,
+        liquidType: "TAKER",
+        originalOrderId: incomingOrder.orderId,
+        originalOrderTimestamp: incomingOrder.createdAt,
+        marketId: incomingOrder.market.id,
+      }),
+    );
+
     // 6. Remove fully filled maker orders from the book and persist their final state
     if (bestBid!.filled >= bestBid!.quantity) {
       book.bids.shift();
-      redis.lpush("snapshot-queue", JSON.stringify(bestBid));
     }
   }
-
-  // Push the order to the Snapshot Queue so that it is stored in DB
-  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
 
   // 6. If the incoming sell order wasn't fully filled, add it to the Asks book
   if (remainingQty > 0) {
