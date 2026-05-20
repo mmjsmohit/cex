@@ -1,5 +1,13 @@
 "use client";
 
+import {
+  CandlestickSeries,
+  createChart,
+  type CandlestickData,
+  type IChartApi,
+  type ISeriesApi,
+  type UTCTimestamp,
+} from "lightweight-charts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -9,6 +17,7 @@ import {
   useEffect,
   useEffectEvent,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import styles from "./page.module.css";
@@ -39,6 +48,12 @@ type MarketDepth = {
 };
 
 type WsStatus = "idle" | "connecting" | "connected" | "closed" | "error";
+type CandleInterval = "1m" | "5m" | "15m" | "1h" | "1d";
+type CandleRange = "1h" | "6h" | "24h" | "7d";
+
+type Candle = CandlestickData<UTCTimestamp> & {
+  volume: number;
+};
 
 type AssetOption = {
   id: string;
@@ -89,6 +104,13 @@ const defaultPerpsWsUrl =
   process.env.NEXT_PUBLIC_PERPS_WS_URL ?? "ws://localhost:4001";
 const spotMarketType: MarketType = "SPOT";
 const perpMarketType: MarketType = "PERP";
+const candleIntervals: CandleInterval[] = ["1m", "5m", "15m", "1h", "1d"];
+const candleRanges: Record<CandleRange, number> = {
+  "1h": 60 * 60 * 1000,
+  "6h": 6 * 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+};
 
 const initialAuth = {
   username: "debug@example.com",
@@ -966,6 +988,12 @@ export function SpotConsolePage({ marketId }: { marketId: string }) {
             <DepthView depth={depth} />
           </section>
 
+          <CandlestickChartPanel
+            marketId={marketId}
+            marketType={spotMarketType}
+            title={formatMarketName(currentMarket, assetsById, marketId)}
+          />
+
           <section className={styles.responsePanel}>
             <div className={styles.responseHeader}>
               <div>
@@ -1525,6 +1553,12 @@ export function PerpConsolePage({ marketId }: { marketId: string }) {
             <DepthView depth={depth} />
           </section>
 
+          <CandlestickChartPanel
+            marketId={marketId}
+            marketType={perpMarketType}
+            title={formatMarketName(currentMarket, assetsById, marketId)}
+          />
+
           <Panel title="Available Equity">
             <div className={styles.equityList}>
               {equity.length === 0 ? (
@@ -1754,6 +1788,177 @@ function DepthView({ depth }: { depth: MarketDepth }) {
       </div>
       <DepthTable levels={bids} maxTotal={maxTotal} side="bid" />
     </div>
+  );
+}
+
+function CandlestickChartPanel({
+  marketId,
+  marketType,
+  title,
+}: {
+  marketId: string;
+  marketType: MarketType;
+  title: string;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const [interval, setInterval] = useState<CandleInterval>("1m");
+  const [range, setRange] = useState<CandleRange>("24h");
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [status, setStatus] = useState("No candles loaded yet.");
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const chart = createChart(container, {
+      autoSize: true,
+      height: 320,
+      layout: {
+        background: { color: "#ffffff" },
+        textColor: "#344054",
+      },
+      grid: {
+        vertLines: { color: "#eef2f6" },
+        horzLines: { color: "#eef2f6" },
+      },
+      rightPriceScale: {
+        borderColor: "#d9dee8",
+      },
+      timeScale: {
+        borderColor: "#d9dee8",
+        timeVisible: true,
+      },
+    });
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: "#16825d",
+      downColor: "#d92d20",
+      borderVisible: false,
+      wickUpColor: "#16825d",
+      wickDownColor: "#d92d20",
+    });
+
+    chartRef.current = chart;
+    seriesRef.current = series;
+
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    seriesRef.current?.setData(candles);
+    if (candles.length > 0) {
+      chartRef.current?.timeScale().fitContent();
+    }
+  }, [candles]);
+
+  const fetchCandles = useEffectEvent(async () => {
+    const to = new Date();
+    const from = new Date(to.getTime() - candleRanges[range]);
+    const searchParams = new URLSearchParams({
+      marketId,
+      marketType,
+      interval,
+      from: from.toISOString(),
+      to: to.toISOString(),
+    });
+
+    setIsLoading(true);
+    setStatus("Loading candles...");
+
+    try {
+      const response = await fetch(`/api/debug/candles?${searchParams}`, {
+        cache: "no-store",
+      });
+      const parsedResponse = parseResponse(await response.text());
+
+      if (!response.ok) {
+        setCandles([]);
+        setStatus(
+          isObject(parsedResponse) && typeof parsedResponse.message === "string"
+            ? parsedResponse.message
+            : `Failed to load candles (${response.status})`,
+        );
+        return;
+      }
+
+      const nextCandles = extractCandles(parsedResponse);
+      setCandles(nextCandles);
+      setStatus(
+        nextCandles.length === 0
+          ? "No fills found for this market and range."
+          : `${nextCandles.length} candles loaded.`,
+      );
+    } catch (error) {
+      setCandles([]);
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsLoading(false);
+    }
+  });
+
+  useEffect(() => {
+    fetchCandles();
+    // fetchCandles is a useEffectEvent and is intentionally omitted from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marketId, marketType, interval, range]);
+
+  return (
+    <section className={styles.chartPanel}>
+      <div className={styles.responseHeader}>
+        <div>
+          <p className={styles.eyebrow}>{marketType} candles</p>
+          <h2>{title}</h2>
+        </div>
+        <button
+          type="button"
+          disabled={isLoading}
+          onClick={() => {
+            void fetchCandles();
+          }}
+          className={styles.refreshButton}
+        >
+          Refresh
+        </button>
+      </div>
+
+      <div className={styles.chartToolbar}>
+        <label className={styles.field}>
+          <span>Interval</span>
+          <select
+            value={interval}
+            onChange={(event) => setInterval(event.target.value as CandleInterval)}
+          >
+            {candleIntervals.map((candleInterval) => (
+              <option key={candleInterval} value={candleInterval}>
+                {candleInterval}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.field}>
+          <span>Range</span>
+          <select
+            value={range}
+            onChange={(event) => setRange(event.target.value as CandleRange)}
+          >
+            {Object.keys(candleRanges).map((candleRange) => (
+              <option key={candleRange} value={candleRange}>
+                {candleRange}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className={styles.chartSurface} ref={containerRef} />
+      <p className={styles.hintNeutral}>{status}</p>
+    </section>
   );
 }
 
@@ -2067,6 +2272,47 @@ function parseDepthLevels(value: unknown): DepthLevel[] {
     }
 
     return [{ price, quantity, total }];
+  });
+}
+
+function extractCandles(response: unknown): Candle[] {
+  if (!isObject(response) || !Array.isArray(response.candles)) {
+    return [];
+  }
+
+  return response.candles.flatMap((rawCandle) => {
+    if (!isObject(rawCandle)) {
+      return [];
+    }
+
+    const time = numberFrom(rawCandle.time);
+    const open = numberFrom(rawCandle.open);
+    const high = numberFrom(rawCandle.high);
+    const low = numberFrom(rawCandle.low);
+    const close = numberFrom(rawCandle.close);
+    const volume = numberFrom(rawCandle.volume);
+
+    if (
+      time === undefined ||
+      open === undefined ||
+      high === undefined ||
+      low === undefined ||
+      close === undefined ||
+      volume === undefined
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        time: time as UTCTimestamp,
+        open,
+        high,
+        low,
+        close,
+        volume,
+      },
+    ];
   });
 }
 

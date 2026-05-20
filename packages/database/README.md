@@ -33,6 +33,41 @@ Common commands from this package or through Turborepo filters:
 - `bun --filter @repo/db db:migrate`: Run development migrations.
 - `bun --filter @repo/db db:deploy`: Apply migrations in deployment environments.
 
+## Railway TimescaleDB setup
+
+For a fresh Railway TimescaleDB service, enable Timescale before applying Prisma migrations:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+```
+
+If the image includes Timescale Toolkit, this optional extension can also be enabled for future candlestick hyperfunctions:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit;
+```
+
+Apply the schema from the repo root with the Railway public database URL:
+
+```bash
+DATABASE_URL="<railway-public-db-url>" bun --filter @repo/db db:deploy
+DATABASE_URL="<railway-public-db-url>" bun --filter @repo/db db:generate
+```
+
+Confirm the fills table is a hypertable and keeps the time column in its primary key:
+
+```sql
+SELECT hypertable_name
+FROM timescaledb_information.hypertables
+WHERE hypertable_name = 'Fills';
+
+SELECT indexdef
+FROM pg_indexes
+WHERE tablename = 'Fills' AND indexname = 'Fills_pkey';
+```
+
+The current migration history includes a fresh-instance hypertable overhaul that drops and recreates `OrderHistory`; do not apply it blindly to a populated production database.
+
 ## Exports
 
 The package exports `src/index.ts`, which provides:

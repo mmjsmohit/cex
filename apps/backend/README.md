@@ -66,6 +66,7 @@ Protected routes expect `Authorization: Bearer <jwt>`.
 - `DELETE /order/:orderId`: Attempts to cancel one in-memory engine order for the signed-in user.
 - `GET /depth/:marketId`: Gets aggregated order-book depth from the engine.
 - `GET /fills`: Gets persisted fills for the signed-in user.
+- `GET /candles`: Gets OHLCV candles from persisted fills. Query: `marketId`, `interval` (`1m`, `5m`, `15m`, `1h`, `1d`), `from`, `to`, optional `marketType` (`SPOT` or `PERP`).
 
 ## Redis queues
 

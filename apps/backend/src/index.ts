@@ -10,9 +10,26 @@ import { QUEUE_ID } from "./loopbackResponse";
 import { randomUUID } from "crypto";
 
 type MarketType = "SPOT" | "PERP";
+type CandleInterval = "1m" | "5m" | "15m" | "1h" | "1d";
+
+type CandleRow = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const publisherClient = new RedisClient(process.env.REDIS_URL);
+const candleIntervals: Record<CandleInterval, string> = {
+  "1m": "1 minute",
+  "5m": "5 minutes",
+  "15m": "15 minutes",
+  "1h": "1 hour",
+  "1d": "1 day",
+};
 
 const app = express();
 app.use(express.json());
@@ -27,6 +44,18 @@ function resolveGetMarketType(req: Request): MarketType {
   }
 
   return req.body?.marketType === "PERP" ? "PERP" : "SPOT";
+}
+
+function getSingleQueryValue(value: Request["query"][string]) {
+  const singleValue = Array.isArray(value) ? value[0] : value;
+  return typeof singleValue === "string" ? singleValue : undefined;
+}
+
+function parseRequiredDate(value: string | undefined) {
+  if (!value) return null;
+
+  const parsedDate = new Date(value);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
 }
 
 app.get("/health", async (req, res) => {
@@ -398,6 +427,117 @@ app.get("/fills", authMiddleware, async (req, res) => {
   res.status(200).json({
     message: "Fills fetched successfully",
     fills,
+  });
+});
+
+app.get("/candles", async (req: Request, res: Response) => {
+  const marketId = getSingleQueryValue(req.query.marketId);
+  const requestedInterval = getSingleQueryValue(req.query.interval);
+  const from = parseRequiredDate(getSingleQueryValue(req.query.from));
+  const to = parseRequiredDate(getSingleQueryValue(req.query.to));
+  const requestedMarketType = getSingleQueryValue(req.query.marketType);
+
+  if (!marketId) {
+    return res.status(400).json({
+      message: "marketId is required",
+    });
+  }
+
+  if (
+    !requestedInterval ||
+    !(requestedInterval in candleIntervals)
+  ) {
+    return res.status(400).json({
+      message: "interval must be one of 1m, 5m, 15m, 1h, 1d",
+    });
+  }
+
+  if (!from || !to) {
+    return res.status(400).json({
+      message: "from and to must be valid ISO date strings",
+    });
+  }
+
+  if (from >= to) {
+    return res.status(400).json({
+      message: "from must be earlier than to",
+    });
+  }
+
+  if (
+    requestedMarketType &&
+    requestedMarketType !== "SPOT" &&
+    requestedMarketType !== "PERP"
+  ) {
+    return res.status(400).json({
+      message: "marketType must be SPOT or PERP",
+    });
+  }
+
+  const bucketInterval = candleIntervals[requestedInterval as CandleInterval];
+  const marketTypeFilter = requestedMarketType
+    ? prisma.$queryRaw<CandleRow[]>`
+        SELECT
+          EXTRACT(EPOCH FROM bucket)::double precision AS time,
+          first(price, "timestamp") AS open,
+          max(price) AS high,
+          min(price) AS low,
+          last(price, "timestamp") AS close,
+          sum(amount) AS volume
+        FROM (
+          SELECT
+            time_bucket(${bucketInterval}::interval, "timestamp") AS bucket,
+            price,
+            amount,
+            "timestamp"
+          FROM "Fills"
+          WHERE "marketId" = ${marketId}
+            AND "marketType" = ${requestedMarketType}::"MarketType"
+            AND "timestamp" >= ${from}
+            AND "timestamp" < ${to}
+        ) fills
+        GROUP BY bucket
+        ORDER BY bucket ASC
+      `
+    : prisma.$queryRaw<CandleRow[]>`
+        SELECT
+          EXTRACT(EPOCH FROM bucket)::double precision AS time,
+          first(price, "timestamp") AS open,
+          max(price) AS high,
+          min(price) AS low,
+          last(price, "timestamp") AS close,
+          sum(amount) AS volume
+        FROM (
+          SELECT
+            time_bucket(${bucketInterval}::interval, "timestamp") AS bucket,
+            price,
+            amount,
+            "timestamp"
+          FROM "Fills"
+          WHERE "marketId" = ${marketId}
+            AND "timestamp" >= ${from}
+            AND "timestamp" < ${to}
+        ) fills
+        GROUP BY bucket
+        ORDER BY bucket ASC
+      `;
+
+  const candles = await marketTypeFilter;
+
+  res.status(200).json({
+    message: "Candles fetched successfully",
+    marketId,
+    interval: requestedInterval,
+    from: from.toISOString(),
+    to: to.toISOString(),
+    candles: candles.map((candle) => ({
+      time: Number(candle.time),
+      open: Number(candle.open),
+      high: Number(candle.high),
+      low: Number(candle.low),
+      close: Number(candle.close),
+      volume: Number(candle.volume),
+    })),
   });
 });
 
