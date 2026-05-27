@@ -14,6 +14,7 @@ interface Position {
   upnl: number;
   take_profit: number | undefined;
   stop_loss: number | undefined;
+  fundingDone: boolean;
 }
 
 export type { Position };

@@ -109,6 +109,8 @@ markets.forEach((market) => {
     indexPrice: 0,
   };
   getOrCreatePositions(market.id);
+  // Start funding rate timer for each market
+  // startFundingWorker(market, 1000 * 60 * 60);
 });
 
 if (IS_MOCK_EXCHANGE) {
@@ -694,4 +696,51 @@ for await (const streamedRequest of incomingMessageStream()) {
     PERP_ENGINE_GROUP,
     streamedRequest.id,
   );
+}
+function startFundingWorker(market: Market, fundingInterval: number) {
+  setInterval(() => {
+    console.log(`Funding execution started for the market ${market.name}`);
+    executeFunding(market);
+  }, fundingInterval);
+}
+function executeFunding(market: Market) {
+  // Obtain index price of the market from the orderbook
+  const indexPrice = PERP_ORDERBOOK[market.id]?.indexPrice;
+  const lastTradedPrice = PERP_ORDERBOOK[market.id]?.lastTradedPrice;
+
+  // Calculate the funding rate based on the gap between indexPrice and lastTradedPrice
+  const fundingRate = (lastTradedPrice! - indexPrice!) / indexPrice!;
+  console.log(`Funding rate for ${market.name}: ${fundingRate}`);
+
+  // Iterate through all the positions and apply the funding rate
+  PERP_POSITIONS[market.id]?.forEach((longPosition) => {
+    if (
+      longPosition.tradeSide === "LONG" &&
+      longPosition.fundingDone == false
+    ) {
+      const longPositionOrderId = longPosition.orderId;
+      const shortPosition = PERP_POSITIONS[market.id]?.find(
+        (order) => order.orderId === longPositionOrderId,
+      );
+      longPosition.fundingDone = true;
+      shortPosition!.fundingDone = true;
+
+      // Add the funding amount to long position
+      longPosition.margin += fundingRate * longPosition.quantity * indexPrice!;
+      shortPosition!.margin -=
+        fundingRate * shortPosition?.quantity! * indexPrice!;
+
+      // Update the liquidation price for the long position
+      longPosition.liquidationPrice =
+        longPosition.entryPrice * (1 + fundingRate);
+      shortPosition!.liquidationPrice =
+        longPosition.entryPrice * (1 - fundingRate);
+    }
+
+    // After funding has been done, set the funding done flag to false for the next funding cycle
+    // This will allow the funding worker to execute the next funding cycle
+    PERP_POSITIONS[market.id]!.forEach((position) => {
+      position.fundingDone = false;
+    });
+  });
 }
