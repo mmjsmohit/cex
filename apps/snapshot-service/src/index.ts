@@ -1,5 +1,36 @@
 import { OrderStatus, prisma } from "@repo/db";
-import { redis } from "bun";
+import { createClient } from "redis";
+
+const SNAPSHOT_STREAM = "snapshot-events";
+const SNAPSHOT_GROUP = "snapshot-service-group";
+const SNAPSHOT_CONSUMER = `snapshot-service-${process.pid}`;
+
+const redisClient = await createClient({
+  url: process.env.REDIS_URL,
+}).connect();
+
+type StreamReadResponse = Array<{
+  name: string;
+  messages: Array<{
+    id: string;
+    message: Record<string, string> | Map<string, string>;
+  }>;
+}> | null;
+
+function getStreamField(
+  fields: Record<string, string> | Map<string, string>,
+  field: string,
+) {
+  return fields instanceof Map ? fields.get(field) : fields[field];
+}
+
+async function ensureConsumerGroup(stream: string, group: string) {
+  try {
+    await redisClient.xGroupCreate(stream, group, "0", { MKSTREAM: true });
+  } catch (error) {
+    if (!String(error).includes("BUSYGROUP")) throw error;
+  }
+}
 
 async function saveSnapshotToDB(parsedResult: any) {
   // Check if the orderId is already present in the DB
@@ -34,18 +65,40 @@ async function saveSnapshotToDB(parsedResult: any) {
 }
 
 async function handleRedisResponse() {
+  await ensureConsumerGroup(SNAPSHOT_STREAM, SNAPSHOT_GROUP);
+
   while (true) {
-    try {
-      const result = await redis.brpop("snapshot-queue", 0);
-      const parsedResult = JSON.parse(result?.[1]!);
-      await saveSnapshotToDB(parsedResult);
-    } catch (err) {
-      console.error("Redis listener error:", err);
+    const result = (await redisClient.xReadGroup(
+      SNAPSHOT_GROUP,
+      SNAPSHOT_CONSUMER,
+      { key: SNAPSHOT_STREAM, id: ">" },
+      { BLOCK: 0, COUNT: 10 },
+    )) as StreamReadResponse;
+
+    if (!result) continue;
+
+    for (const stream of result) {
+      for (const message of stream.messages) {
+        try {
+          const payload = getStreamField(message.message, "payload");
+          if (!payload) {
+            throw new Error(
+              `Redis stream message ${stream.name}:${message.id} is missing payload`,
+            );
+          }
+
+          const parsedResult = JSON.parse(payload);
+          await saveSnapshotToDB(parsedResult);
+          await redisClient.xAck(SNAPSHOT_STREAM, SNAPSHOT_GROUP, message.id);
+        } catch (err) {
+          console.error("Redis listener error:", err);
+        }
+      }
     }
   }
 }
 
-handleRedisResponse();
+void handleRedisResponse();
 function getOrderStatus(parsedResult: any): OrderStatus {
   return OrderStatus.FILLED;
 }

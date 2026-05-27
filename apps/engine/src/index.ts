@@ -3,7 +3,12 @@
 // The engine handles creating orders, sending depth (ordersbook as a whole), user balances by receiving them from the
 // redis queue and returning the response into another queue.
 
-import { RedisClient } from "bun";
+import {
+  publisherClient,
+  publisherReady,
+  subscriberClient,
+  subscriberReady,
+} from "./redis";
 import type { Balances } from "./types/balances.types";
 import type {
   AssetOrderBook,
@@ -19,24 +24,40 @@ import {
 } from "./matching";
 import { getMarketDepth } from "./depth";
 
+const SPOT_ENGINE_GROUP = "engine-group";
+const SPOT_ENGINE_CONSUMER = `engine-${process.pid}`;
+const SPOT_REQUEST_STREAMS = ["incoming-orders", "balance"] as const;
+
+type StreamReadResponse = Array<{
+  name: string;
+  messages: Array<{
+    id: string;
+    message: Record<string, string> | Map<string, string>;
+  }>;
+}> | null;
+
+function getStreamField(
+  fields: Record<string, string> | Map<string, string>,
+  field: string,
+) {
+  return fields instanceof Map ? fields.get(field) : fields[field];
+}
+
+async function ensureConsumerGroup(stream: string, group: string) {
+  try {
+    await subscriberClient.xGroupCreate(stream, group, "0", { MKSTREAM: true });
+  } catch (error) {
+    if (!String(error).includes("BUSYGROUP")) throw error;
+  }
+}
+
 // Define and initiate the clients for pushing and reading from Redis
-const publisherClient = new RedisClient(process.env.REDIS_URL);
-const subscriberClient = new RedisClient(process.env.REDIS_URL);
-
-// Called when successfully connected to Redis server
-publisherClient.onconnect = () => {
-  console.log("Connected to Publisher Redis server");
-};
-subscriberClient.onconnect = () => {
-  console.log("Connected to Subscriber Redis server");
-};
-
-publisherClient.onclose = (error) => {
-  console.error("Disconnected from Publisher Redis server:", error);
-};
-subscriberClient.onclose = (error) => {
-  console.error("Disconnected from the Subscriber Redis Client");
-};
+await Promise.all([publisherReady, subscriberReady]);
+await Promise.all(
+  SPOT_REQUEST_STREAMS.map((stream) =>
+    ensureConsumerGroup(stream, SPOT_ENGINE_GROUP),
+  ),
+);
 
 // Global in memory Balances Array
 // Balances array which will store the balances of the users for each asset along with the fiat balance and locked fiat
@@ -46,20 +67,82 @@ export let BALANCES: Balances = {};
 // Stores the orderbooks of all the assets with their bids, asks and last traded price
 export let ORDERBOOK: OrderBook = {};
 
-async function* incomingMessageStream(subscribingClient: RedisClient) {
+type BaseEngineRequest = {
+  identifier: string;
+  queue_id: string;
+};
+
+type EngineRequest =
+  | (BaseEngineRequest & {
+      requestType: "create_order";
+      orderId: string;
+      userId: string;
+      price: number | undefined;
+      quantity: number;
+      market_id: string;
+      trade_side: string;
+      order_type: Order["orderType"];
+      market: Order["market"];
+    })
+  | (BaseEngineRequest & {
+      requestType: "get_depth";
+      marketId: string;
+    })
+  | (BaseEngineRequest & {
+      requestType: "get_order" | "delete_order";
+      userId: string;
+      orderId: string;
+    })
+  | (BaseEngineRequest & {
+      requestType: "get_all_orders" | "get_balance" | "get_usd_balance";
+      userId: string;
+    })
+  | (BaseEngineRequest & {
+      requestType: "add_balance";
+      userId: string;
+      assetAmount: number;
+      assetId: string;
+    });
+
+type StreamedEngineRequest = {
+  stream: string;
+  id: string;
+  data: EngineRequest;
+};
+
+async function* incomingMessageStream(): AsyncGenerator<StreamedEngineRequest> {
   while (true) {
-    const response = await subscribingClient.send("BRPOP", [
-      "incoming-orders",
-      "balance",
-      "0",
-    ]);
+    const response = (await subscriberClient.xReadGroup(
+      SPOT_ENGINE_GROUP,
+      SPOT_ENGINE_CONSUMER,
+      SPOT_REQUEST_STREAMS.map((stream) => ({ key: stream, id: ">" })),
+      { BLOCK: 0, COUNT: 1 },
+    )) as StreamReadResponse;
+
     if (!response) continue;
-    const [queue, message] = response;
-    yield JSON.parse(message);
+
+    for (const stream of response) {
+      for (const message of stream.messages) {
+        const payload = getStreamField(message.message, "payload");
+        if (!payload) {
+          console.error(
+            `Redis stream message ${stream.name}:${message.id} is missing payload`,
+          );
+          continue;
+        }
+
+        yield {
+          stream: stream.name,
+          id: message.id,
+          data: JSON.parse(payload) as EngineRequest,
+        };
+      }
+    }
   }
 }
 
-for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
+for await (const streamedRequest of incomingMessageStream()) {
+  const parsedResponse = streamedRequest.data;
   let data = {};
   const identifier = parsedResponse.identifier;
 
@@ -131,13 +214,13 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
         const currentMarketDepth =
           ORDERBOOK[incomingOrder.market.id] ?? ({} as AssetOrderBook);
         getMarketDepth(currentMarketDepth);
-        await publisherClient.send("LPUSH", [
+        await publisherClient.lPush(
           "order-updates",
           JSON.stringify({
             currentMarketDepth,
             marketId: market.id,
           }),
-        ]);
+        );
       }
     } catch (error) {
       data = {
@@ -355,8 +438,16 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
     };
   }
 
-  await publisherClient.send("LPUSH", [
-    "response-queue-" + parsedResponse.queue_id,
-    JSON.stringify(data),
-  ]);
+  await publisherClient.xAdd(
+    "response-stream-" + parsedResponse.queue_id,
+    "*",
+    {
+      payload: JSON.stringify(data),
+    },
+  );
+  await subscriberClient.xAck(
+    streamedRequest.stream,
+    SPOT_ENGINE_GROUP,
+    streamedRequest.id,
+  );
 }

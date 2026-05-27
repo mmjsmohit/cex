@@ -3,7 +3,12 @@
 // The engine handles creating orders, sending depth (ordersbook as a whole), user balances by receiving them from the
 // redis queue and returning the response into another queue.
 
-import { RedisClient } from "bun";
+import {
+  publisherClient,
+  publisherReady,
+  subscriberClient,
+  subscriberReady,
+} from "./redis";
 
 // import {
 //   processLimitBuy,
@@ -32,28 +37,52 @@ import {
 } from "./utils";
 import { processPerpLimitBuy, processPerpLimitSell } from "./perpMatching";
 
+const PERP_ENGINE_GROUP = "perp-engine-group";
+const PERP_ENGINE_CONSUMER = `perp-engine-${process.pid}`;
+const PERP_REQUEST_STREAMS = ["perp-incoming-orders", "collaterals"] as const;
+
+type StreamReadResponse = Array<{
+  name: string;
+  messages: Array<{
+    id: string;
+    message: Record<string, string> | Map<string, string>;
+  }>;
+}> | null;
+
+type PerpEngineRequest = {
+  requestType: string;
+  identifier: string;
+  queue_id: string;
+  [key: string]: any;
+};
+
+function getStreamField(
+  fields: Record<string, string> | Map<string, string>,
+  field: string,
+) {
+  return fields instanceof Map ? fields.get(field) : fields[field];
+}
+
+async function ensureConsumerGroup(stream: string, group: string) {
+  try {
+    await subscriberClient.xGroupCreate(stream, group, "0", { MKSTREAM: true });
+  } catch (error) {
+    if (!String(error).includes("BUSYGROUP")) throw error;
+  }
+}
+
 // Define and initiate the clients for pushing and reading from Redis
-const publisherClient = new RedisClient(process.env.REDIS_URL);
-const subscriberClient = new RedisClient(process.env.REDIS_URL);
+await Promise.all([publisherReady, subscriberReady]);
+await Promise.all(
+  PERP_REQUEST_STREAMS.map((stream) =>
+    ensureConsumerGroup(stream, PERP_ENGINE_GROUP),
+  ),
+);
+
 const IS_MOCK_EXCHANGE =
   process.env.IS_MOCK === "true" || process.env.IS_MOCK === "1";
 const MOCK_EXCHANGE_WS_URL =
   process.env.MOCK_EXCHANGE_WS_URL || "ws://localhost:6000";
-
-// Called when successfully connected to Redis server
-publisherClient.onconnect = () => {
-  console.log("Connected to Publisher Redis server");
-};
-subscriberClient.onconnect = () => {
-  console.log("Connected to Subscriber Redis server");
-};
-
-publisherClient.onclose = (error) => {
-  console.error("Disconnected from Publisher Redis server:", error);
-};
-subscriberClient.onclose = (error) => {
-  console.error("Disconnected from the Subscriber Redis Client");
-};
 
 // Global in memory Collaterals Array
 // Collaterals array which will store the collaterals of the users for each asset along with the fiat balance and locked fiat
@@ -168,21 +197,45 @@ exchangeSocket.addEventListener("message", (event) => {
   console.log("ORDERBOOK FOR THIS MARKET\n", PERP_ORDERBOOK[marketId]);
 });
 
-async function* incomingMessageStream(subscribingClient: RedisClient) {
+type StreamedPerpEngineRequest = {
+  stream: string;
+  id: string;
+  data: PerpEngineRequest;
+};
+
+async function* incomingMessageStream(): AsyncGenerator<StreamedPerpEngineRequest> {
   while (true) {
-    const response = await subscribingClient.send("BRPOP", [
-      // listen for new messages in the "incoming-perp-orders" & "collaterals" queue
-      "perp-incoming-orders",
-      "collaterals",
-      "0",
-    ]);
+    const response = (await subscriberClient.xReadGroup(
+      PERP_ENGINE_GROUP,
+      PERP_ENGINE_CONSUMER,
+      PERP_REQUEST_STREAMS.map((stream) => ({ key: stream, id: ">" })),
+      { BLOCK: 0, COUNT: 1 },
+    )) as StreamReadResponse;
+
     if (!response) continue;
-    const [queue, message] = response;
-    yield JSON.parse(message);
+
+    for (const stream of response) {
+      for (const message of stream.messages) {
+        const payload = getStreamField(message.message, "payload");
+        if (!payload) {
+          console.error(
+            `Redis stream message ${stream.name}:${message.id} is missing payload`,
+          );
+          continue;
+        }
+
+        yield {
+          stream: stream.name,
+          id: message.id,
+          data: JSON.parse(payload) as PerpEngineRequest,
+        };
+      }
+    }
   }
 }
 
-for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
+for await (const streamedRequest of incomingMessageStream()) {
+  const parsedResponse = streamedRequest.data;
   let data = {};
   const identifier = parsedResponse.identifier;
 
@@ -238,13 +291,13 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
       if (PERP_ORDERBOOK[incomingOrder.market.id]) {
         const currentMarketDepth =
           PERP_ORDERBOOK[incomingOrder.market.id] ?? ({} as PerpAssetOrderBook);
-        await publisherClient.send("LPUSH", [
+        await publisherClient.lPush(
           "perp-order-updates",
           JSON.stringify({
             currentMarketDepth,
             marketId: market.id,
           }),
-        ]);
+        );
       }
     } catch (error) {
       data = {
@@ -322,13 +375,13 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
           }
         }
 
-        await publisherClient.send("LPUSH", [
+        await publisherClient.lPush(
           "perp-order-updates",
           JSON.stringify({
             currentMarketDepth: targetBook,
             marketId: targetOrder.market.id,
           }),
-        ]);
+        );
 
         data = {
           type: "delete_order",
@@ -613,8 +666,16 @@ for await (const parsedResponse of incomingMessageStream(subscriberClient)) {
   //     identifier,
   //   };
   // }
-  await publisherClient.send("LPUSH", [
-    "response-queue-" + parsedResponse.queue_id,
-    JSON.stringify(data),
-  ]);
+  await publisherClient.xAdd(
+    "response-stream-" + parsedResponse.queue_id,
+    "*",
+    {
+      payload: JSON.stringify(data),
+    },
+  );
+  await subscriberClient.xAck(
+    streamedRequest.stream,
+    PERP_ENGINE_GROUP,
+    streamedRequest.id,
+  );
 }

@@ -1,5 +1,5 @@
-import { redis } from "bun";
 import { ORDERBOOK } from ".";
+import { publisherClient } from "./redis";
 import type { Order, OrderBook } from "./types/orderbook.types";
 import { lockBalances, executeSwap, insertBid, insertAsk } from "./utils";
 
@@ -80,10 +80,9 @@ export function processLimitBuy(
     }
 
     console.log("Fill pushed to DB");
-    // Push the order to the Snapshot Queue so that it is stored in DB
-    redis.lpush(
-      "snapshot-queue",
-      JSON.stringify({
+    // Push the order to the Snapshot Stream so that it is stored in DB
+    void publisherClient.xAdd("snapshot-events", "*", {
+      payload: JSON.stringify({
         takerUserId: incomingOrder.userId,
         makerUserId: bestAsk!.userId,
         amount: incomingOrder.quantity,
@@ -96,7 +95,7 @@ export function processLimitBuy(
         marketId: incomingOrder.market.id,
         type: incomingOrder.orderType,
       }),
-    );
+    });
   }
 
   // 6. If the incoming buy order wasn't fully filled, add it to the Bids book
@@ -163,10 +162,9 @@ export function processLimitSell(
       book.bids.shift();
     }
 
-    // Push the order to the Snapshot Queue so that it is stored in DB
-    redis.lpush(
-      "snapshot-queue",
-      JSON.stringify({
+    // Push the order to the Snapshot Stream so that it is stored in DB
+    void publisherClient.xAdd("snapshot-events", "*", {
+      payload: JSON.stringify({
         takerUserId: incomingOrder.userId,
         makerUserId: bestBid!.userId,
         amount: incomingOrder.quantity,
@@ -179,7 +177,7 @@ export function processLimitSell(
         marketId: incomingOrder.market.id,
         type: incomingOrder.orderType,
       }),
-    );
+    });
   }
   console.log("Fill pushed to DB");
   // 3. If the incoming sell order wasn't fully filled, add it to the Asks book
@@ -248,9 +246,8 @@ export function processMarketBuy(
       book!.asks.shift();
     }
 
-    redis.lpush(
-      "snapshot-queue",
-      JSON.stringify({
+    void publisherClient.xAdd("snapshot-events", "*", {
+      payload: JSON.stringify({
         takerUserId: incomingOrder.userId,
         makerUserId: bestAsk!.userId,
         amount: incomingOrder.quantity,
@@ -263,11 +260,13 @@ export function processMarketBuy(
         marketId: incomingOrder.market.id,
         type: incomingOrder.orderType,
       }),
-    );
+    });
   }
 
-  // Push the order to the Snapshot Queue so that it is stored in DB
-  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
+  // Push the order to the Snapshot Stream so that it is stored in DB
+  void publisherClient.xAdd("snapshot-events", "*", {
+    payload: JSON.stringify(incomingOrder),
+  });
 }
 
 export function processMarketSell(
@@ -330,9 +329,8 @@ export function processMarketSell(
       book!.bids.shift();
     }
 
-    redis.lpush(
-      "snapshot-queue",
-      JSON.stringify({
+    void publisherClient.xAdd("snapshot-events", "*", {
+      payload: JSON.stringify({
         takerUserId: incomingOrder.userId,
         makerUserId: bestBid!.userId,
         amount: incomingOrder.quantity,
@@ -345,9 +343,11 @@ export function processMarketSell(
         marketId: incomingOrder.market.id,
         type: incomingOrder.orderType,
       }),
-    );
+    });
   }
 
-  // Push the order to the Snapshot Queue so that it is stored in DB
-  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
+  // Push the order to the Snapshot Stream so that it is stored in DB
+  void publisherClient.xAdd("snapshot-events", "*", {
+    payload: JSON.stringify(incomingOrder),
+  });
 }

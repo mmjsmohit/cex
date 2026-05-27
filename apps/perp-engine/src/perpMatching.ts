@@ -1,5 +1,5 @@
-import { redis } from "bun";
 import { PERP_ORDERBOOK } from ".";
+import { publisherClient } from "./redis";
 import type {
   PerpAssetOrderBook,
   PerpOrder,
@@ -118,9 +118,8 @@ export function processPerpLimitBuy(incomingOrder: PerpOrder) {
     });
 
     // Push incomingOrder fills to the snapshot service to be stored in the DB
-    redis.lpush(
-      "snapshot-queue",
-      JSON.stringify({
+    void publisherClient.xAdd("snapshot-events", "*", {
+      payload: JSON.stringify({
         takerUserId: incomingOrder.userId,
         makerUserId: bestAsk!.userId,
         amount: incomingOrder.quantity,
@@ -132,7 +131,7 @@ export function processPerpLimitBuy(incomingOrder: PerpOrder) {
         originalOrderTimestamp: incomingOrder.createdAt,
         marketId: incomingOrder.market.id,
       }),
-    );
+    });
 
     // 5. Remove fully filled maker orders from the book and persist their final state
     if (bestAsk!.filled >= bestAsk!.quantity) {
@@ -140,8 +139,10 @@ export function processPerpLimitBuy(incomingOrder: PerpOrder) {
     }
   }
 
-  // Push the order to the Snapshot Queue so that it is stored in DB
-  redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
+  // Push the order to the Snapshot Stream so that it is stored in DB
+  void publisherClient.xAdd("snapshot-events", "*", {
+    payload: JSON.stringify(incomingOrder),
+  });
 
   // 6. If the incoming buy order wasn't fully filled, add it to the Bids book
   if (remainingQty > 0) {
@@ -275,9 +276,8 @@ export function processPerpLimitSell(incomingOrder: PerpOrder) {
     });
 
     // Push incomingOrder fills to the snapshot service to be stored in the DB
-    redis.lpush(
-      "snapshot-queue",
-      JSON.stringify({
+    void publisherClient.xAdd("snapshot-events", "*", {
+      payload: JSON.stringify({
         takerUserId: incomingOrder.userId,
         makerUserId: bestBid!.userId,
         amount: incomingOrder.quantity,
@@ -289,7 +289,7 @@ export function processPerpLimitSell(incomingOrder: PerpOrder) {
         originalOrderTimestamp: incomingOrder.createdAt,
         marketId: incomingOrder.market.id,
       }),
-    );
+    });
 
     // 6. Remove fully filled maker orders from the book and persist their final state
     if (bestBid!.filled >= bestBid!.quantity) {
@@ -362,8 +362,8 @@ export function processPerpLimitSell(incomingOrder: PerpOrder) {
 //     }
 //   }
 
-//   // Push the order to the Snapshot Queue so that it is stored in DB
-//   redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
+//   // Push the order to the Snapshot Stream so that it is stored in DB
+//   void publisherClient.xAdd("snapshot-events", "*", { payload: JSON.stringify(incomingOrder) });
 
 //   // 3. If the incoming sell order wasn't fully filled, add it to the Asks book
 //   if (remainingQty > 0) {
@@ -432,8 +432,8 @@ export function processPerpLimitSell(incomingOrder: PerpOrder) {
 //     }
 //   }
 
-//   // Push the order to the Snapshot Queue so that it is stored in DB
-//   redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
+//   // Push the order to the Snapshot Stream so that it is stored in DB
+//   void publisherClient.xAdd("snapshot-events", "*", { payload: JSON.stringify(incomingOrder) });
 // }
 
 // export function processMarketSell(
@@ -497,6 +497,6 @@ export function processPerpLimitSell(incomingOrder: PerpOrder) {
 //     }
 //   }
 
-//   // Push the order to the Snapshot Queue so that it is stored in DB
-//   redis.lpush("snapshot-queue", JSON.stringify(incomingOrder));
+//   // Push the order to the Snapshot Stream so that it is stored in DB
+//   void publisherClient.xAdd("snapshot-events", "*", { payload: JSON.stringify(incomingOrder) });
 // }

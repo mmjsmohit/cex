@@ -4,10 +4,10 @@ import { OrderStatus, prisma } from "@repo/db";
 import bcrypt from "bcrypt";
 import jsonwebtoken from "jsonwebtoken";
 import authMiddleware from "./middleware";
-import { RedisClient } from "bun";
 import getLoopbackResponse from "./loopbackResponse";
 import { QUEUE_ID } from "./loopbackResponse";
 import { randomUUID } from "crypto";
+import { createClient } from "redis";
 
 type MarketType = "SPOT" | "PERP";
 type CandleInterval = "1m" | "5m" | "15m" | "1h" | "1d";
@@ -22,7 +22,9 @@ type CandleRow = {
 };
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const publisherClient = new RedisClient(process.env.REDIS_URL);
+const publisherClient = await createClient({
+  url: process.env.REDIS_URL,
+}).connect();
 const candleIntervals: Record<CandleInterval, string> = {
   "1m": "1 minute",
   "5m": "5 minutes",
@@ -193,9 +195,8 @@ app.post("/order", authMiddleware, async (req, res) => {
 
   const loopbackResponsePromise = getLoopbackResponse(identifier);
   if (market_type === "SPOT") {
-    await publisherClient.send("LPUSH", [
-      "incoming-orders",
-      JSON.stringify({
+    await publisherClient.xAdd("incoming-orders", "*", {
+      payload: JSON.stringify({
         orderId: identifier,
         userId,
         requestType: "create_order",
@@ -207,11 +208,10 @@ app.post("/order", authMiddleware, async (req, res) => {
         market,
         queue_id: QUEUE_ID,
       }),
-    ]);
+    });
   } else {
-    await publisherClient.send("LPUSH", [
-      "perp-incoming-orders",
-      JSON.stringify({
+    await publisherClient.xAdd("perp-incoming-orders", "*", {
+      payload: JSON.stringify({
         orderId: identifier,
         userId,
         requestType: "create_order",
@@ -225,7 +225,7 @@ app.post("/order", authMiddleware, async (req, res) => {
         leverage,
         queue_id: QUEUE_ID,
       }),
-    ]);
+    });
   }
 
   const loopbackResponse = await loopbackResponsePromise;
@@ -245,25 +245,23 @@ app.get("/orders", authMiddleware, async (req, res) => {
   const loopbackResponsePromise = getLoopbackResponse(requestId);
 
   if (marketType === "SPOT") {
-    await publisherClient.send("LPUSH", [
-      "incoming-orders",
-      JSON.stringify({
+    await publisherClient.xAdd("incoming-orders", "*", {
+      payload: JSON.stringify({
         userId,
         identifier: requestId,
         requestType: "get_all_orders",
         queue_id: QUEUE_ID,
       }),
-    ]);
+    });
   } else {
-    await publisherClient.send("LPUSH", [
-      "perp-incoming-orders",
-      JSON.stringify({
+    await publisherClient.xAdd("perp-incoming-orders", "*", {
+      payload: JSON.stringify({
         userId,
         identifier: requestId,
         requestType: "get_all_orders",
         queue_id: QUEUE_ID,
       }),
-    ]);
+    });
   }
   const loopbackResponse = await loopbackResponsePromise;
   res.json({
@@ -284,27 +282,25 @@ app.get("/order/:orderId", authMiddleware, async (req, res) => {
   const requestId = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(requestId);
   if (marketType === "SPOT") {
-    await publisherClient.send("LPUSH", [
-      "incoming-orders",
-      JSON.stringify({
+    await publisherClient.xAdd("incoming-orders", "*", {
+      payload: JSON.stringify({
         identifier: requestId,
         userId,
         orderId,
         requestType: "get_order",
         queue_id: QUEUE_ID,
       }),
-    ]);
+    });
   } else {
-    await publisherClient.send("LPUSH", [
-      "perp-incoming-orders",
-      JSON.stringify({
+    await publisherClient.xAdd("perp-incoming-orders", "*", {
+      payload: JSON.stringify({
         identifier: requestId,
         userId,
         orderId,
         requestType: "get_order",
         queue_id: QUEUE_ID,
       }),
-    ]);
+    });
   }
 
   const loopbackResponse = await loopbackResponsePromise;
@@ -324,9 +320,8 @@ app.delete("/order/:orderId", authMiddleware, async (req, res) => {
   const requestId = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(requestId);
   if (market_type === "PERP") {
-    await publisherClient.send("LPUSH", [
-      "perp-incoming-orders",
-      JSON.stringify({
+    await publisherClient.xAdd("perp-incoming-orders", "*", {
+      payload: JSON.stringify({
         identifier: requestId,
         userId,
         orderId,
@@ -334,11 +329,10 @@ app.delete("/order/:orderId", authMiddleware, async (req, res) => {
         market_type,
         queue_id: QUEUE_ID,
       }),
-    ]);
+    });
   } else {
-    await publisherClient.send("LPUSH", [
-      "incoming-orders",
-      JSON.stringify({
+    await publisherClient.xAdd("incoming-orders", "*", {
+      payload: JSON.stringify({
         identifier: requestId,
         userId,
         orderId,
@@ -346,7 +340,7 @@ app.delete("/order/:orderId", authMiddleware, async (req, res) => {
         market_type,
         queue_id: QUEUE_ID,
       }),
-    ]);
+    });
   }
 
   const loopbackResponse = await loopbackResponsePromise;
@@ -367,24 +361,22 @@ app.get("/depth/:marketId", async (req, res) => {
   // TODO: Probably start using different queues for different tasks
 
   marketType === "SPOT"
-    ? await publisherClient.send("LPUSH", [
-        "incoming-orders",
-        JSON.stringify({
+    ? await publisherClient.xAdd("incoming-orders", "*", {
+        payload: JSON.stringify({
           identifier: requestId,
           marketId,
           requestType: "get_depth",
           queue_id: QUEUE_ID,
         }),
-      ])
-    : await publisherClient.send("LPUSH", [
-        "perp-incoming-orders",
-        JSON.stringify({
+      })
+    : await publisherClient.xAdd("perp-incoming-orders", "*", {
+        payload: JSON.stringify({
           identifier: requestId,
           marketId,
           requestType: "get_depth",
           queue_id: QUEUE_ID,
         }),
-      ]);
+      });
   console.log(
     `Depth request sent to queue with id: ${requestId} for market ${marketId} and market type ${marketType}`,
   );
@@ -443,10 +435,7 @@ app.get("/candles", async (req: Request, res: Response) => {
     });
   }
 
-  if (
-    !requestedInterval ||
-    !(requestedInterval in candleIntervals)
-  ) {
+  if (!requestedInterval || !(requestedInterval in candleIntervals)) {
     return res.status(400).json({
       message: "interval must be one of 1m, 5m, 15m, 1h, 1d",
     });
@@ -554,9 +543,8 @@ app.post("/balance", authMiddleware, async (req, res) => {
   // Push the add-balance to redis queue
   const identifier = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(identifier);
-  await publisherClient.send("LPUSH", [
-    "balance",
-    JSON.stringify({
+  await publisherClient.xAdd("balance", "*", {
+    payload: JSON.stringify({
       requestType: "add_balance",
       userId,
       assetId,
@@ -565,7 +553,7 @@ app.post("/balance", authMiddleware, async (req, res) => {
       identifier,
       queue_id: QUEUE_ID,
     }),
-  ]);
+  });
 
   const loopbackResponse = await loopbackResponsePromise;
   res.json({
@@ -581,9 +569,8 @@ app.post("/onramp", authMiddleware, async (req, res) => {
   const { marketId, amount } = req.body;
   const identifier = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(identifier);
-  await publisherClient.send("LPUSH", [
-    "collaterals",
-    JSON.stringify({
+  await publisherClient.xAdd("collaterals", "*", {
+    payload: JSON.stringify({
       requestType: "add_collateral",
       userId,
       marketId,
@@ -591,7 +578,7 @@ app.post("/onramp", authMiddleware, async (req, res) => {
       identifier,
       queue_id: QUEUE_ID,
     }),
-  ]);
+  });
 
   const loopbackResponse = await loopbackResponsePromise;
   res.json({
@@ -606,16 +593,15 @@ app.get("/balance/usd", authMiddleware, async (req, res) => {
   const userId = req.userId;
   const identifier = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(identifier);
-  await publisherClient.send("LPUSH", [
-    "balance",
-    JSON.stringify({
+  await publisherClient.xAdd("balance", "*", {
+    payload: JSON.stringify({
       requestType: "get_usd_balance",
       userId,
       orderId: identifier,
       identifier,
       queue_id: QUEUE_ID,
     }),
-  ]);
+  });
 
   const loopbackResponse = await loopbackResponsePromise;
   res.json({
@@ -631,15 +617,14 @@ app.get("/balance", authMiddleware, async (req, res) => {
   const identifier = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(identifier);
 
-  await publisherClient.send("LPUSH", [
-    "balance",
-    JSON.stringify({
+  await publisherClient.xAdd("balance", "*", {
+    payload: JSON.stringify({
       requestType: "get_balance",
       userId,
       identifier,
       queue_id: QUEUE_ID,
     }),
-  ]);
+  });
 
   const loopbackResponse = await loopbackResponsePromise;
   res.json({
@@ -654,15 +639,14 @@ app.get("/equity/available", authMiddleware, async (req, res) => {
   const userId = req.userId;
   const identifier = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(identifier);
-  await publisherClient.send("LPUSH", [
-    "collaterals",
-    JSON.stringify({
+  await publisherClient.xAdd("collaterals", "*", {
+    payload: JSON.stringify({
       requestType: "get_available_equity",
       userId,
       identifier,
       queue_id: QUEUE_ID,
     }),
-  ]);
+  });
 
   const loopbackResponse = await loopbackResponsePromise;
   res.json({
@@ -777,16 +761,15 @@ app.get("/positions/open/:marketId", authMiddleware, async (req, res) => {
   const marketId = req.params.marketId;
   const identifier = randomUUID();
   const loopbackResponsePromise = getLoopbackResponse(identifier);
-  await publisherClient.send("LPUSH", [
-    "perp-incoming-orders",
-    JSON.stringify({
+  await publisherClient.xAdd("perp-incoming-orders", "*", {
+    payload: JSON.stringify({
       requestType: "get_open_positions",
       userId,
       marketId,
       identifier,
       queue_id: QUEUE_ID,
     }),
-  ]);
+  });
 
   const loopbackResponse = await loopbackResponsePromise;
   res.json({

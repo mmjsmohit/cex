@@ -111,14 +111,11 @@ model Fills {
   makerUserId            String
   takerUserId            String
   marketId               String
-  // Kept as plain scalar fields for application-level tracking
-  // without database-level Foreign Key constraints
   originalOrderId        String
   originalOrderTimestamp DateTime
 
-  fee       String // Tip: Float is risky for financial balances, consider Decimal/String for production
+  fee       String
   timestamp DateTime @default(now())
 
-  // Required by TimescaleDB: The time column must be in the Primary Key
   @@id([id, timestamp])
 }
