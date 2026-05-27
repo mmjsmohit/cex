@@ -166,6 +166,8 @@ app.post("/order", authMiddleware, async (req, res) => {
     trade_side,
     order_type,
     market_type,
+    take_profit,
+    stop_loss,
   } = req.body;
   let identifier = randomUUID();
   const normalizedTradeSide = String(trade_side).toUpperCase();
@@ -224,6 +226,8 @@ app.post("/order", authMiddleware, async (req, res) => {
         margin,
         leverage,
         queue_id: QUEUE_ID,
+        take_profit,
+        stop_loss,
       }),
     });
   }

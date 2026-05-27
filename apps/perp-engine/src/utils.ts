@@ -142,6 +142,8 @@ export function matchPerpSwap(trade: {
   market: Market;
   longerLeverage: number;
   shorterLeverage: number;
+  take_profit: number | undefined;
+  stop_loss: number | undefined;
 }) {
   const {
     orderId,
@@ -152,6 +154,8 @@ export function matchPerpSwap(trade: {
     market,
     longerLeverage,
     shorterLeverage,
+    take_profit,
+    stop_loss,
   } = trade;
 
   const longerMargin = calculateInitialMargin(qty, price, longerLeverage);
@@ -176,6 +180,8 @@ export function matchPerpSwap(trade: {
     margin: longerMargin,
     price,
     liquidationPrice: longerLiquidationPrice,
+    take_profit,
+    stop_loss,
   });
 
   upsertPosition({
@@ -187,6 +193,8 @@ export function matchPerpSwap(trade: {
     margin: shorterMargin,
     price,
     liquidationPrice: shorterLiquidationPrice,
+    take_profit,
+    stop_loss,
   });
 
   // TODO: Send an event via Redis so the Express backend can write trade history to DB.
@@ -240,6 +248,8 @@ function upsertPosition({
   margin,
   price,
   liquidationPrice,
+  take_profit,
+  stop_loss,
   orderId,
 }: {
   userId: string;
@@ -249,6 +259,8 @@ function upsertPosition({
   qty: number;
   margin: number;
   price: number;
+  take_profit: number | undefined;
+  stop_loss: number | undefined;
   liquidationPrice: number;
 }) {
   const marketPositions = getOrCreatePositions(market.id);
@@ -275,6 +287,8 @@ function upsertPosition({
       entryPrice: price,
       orderId: orderId,
       upnl: 0, // Every position starts with 0 P/L until the next price update comes in.
+      take_profit,
+      stop_loss,
     });
     return;
   }
@@ -432,4 +446,32 @@ export function getMarketDepth(perpOrderBook: PerpAssetOrderBook) {
     });
 
   return { bids, asks };
+}
+
+export function isValidOrder(incomingOrder: PerpOrder): boolean {
+  const sl_price = incomingOrder.stop_loss;
+  const tp_price = incomingOrder.take_profit;
+
+  const ep = incomingOrder.entryPrice;
+  const ts = incomingOrder.tradeSide;
+  // For a SHORT order, the stop loss price must be greater than the entry price and
+  // take profir price must be less than the entry price.
+  //
+  // Reverse is true for a LONG order
+  if (sl_price || tp_price) {
+    if (ts === "LONG") {
+      if (sl_price! > ep!) {
+        return false;
+      } else if (tp_price! < ep!) {
+        return false;
+      }
+    } else {
+      if (sl_price! < ep!) {
+        return false;
+      } else if (tp_price! > ep!) {
+        return false;
+      }
+    }
+  }
+  return true;
 }

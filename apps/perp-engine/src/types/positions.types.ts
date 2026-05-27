@@ -12,6 +12,8 @@ interface Position {
   liquidationPrice: number;
   entryPrice: number;
   upnl: number;
+  take_profit: number | undefined;
+  stop_loss: number | undefined;
 }
 
 export type { Position };

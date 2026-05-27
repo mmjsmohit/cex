@@ -31,6 +31,7 @@ import type { Position } from "./types/positions.types";
 import {
   getMarketDepth,
   getOrCreatePositions,
+  isValidOrder,
   liquidatePositions,
   waitForBackend,
   waitForExchangePriceMocker,
@@ -185,7 +186,11 @@ exchangeSocket.addEventListener("message", (event) => {
     }
 
     // Mark this position for liquidation
-    if (price === position.liquidationPrice) {
+    if (
+      price === position.liquidationPrice ||
+      price === position.take_profit ||
+      price === position.stop_loss
+    ) {
       needLiquidation.push(marketPositions[idx]!);
     }
   });
@@ -259,45 +264,56 @@ for await (const streamedRequest of incomingMessageStream()) {
         margin: parsedResponse.margin,
         market: parsedResponse.market,
         leverage: Number(parsedResponse.leverage ?? 1),
+        take_profit: parsedResponse.take_profit,
+        stop_loss: parsedResponse.stop_loss,
       };
 
-      const market: Market = parsedResponse.market;
-
-      // Process the incoming order
-      if (incomingOrder.tradeSide === "LONG") {
-        if (incomingOrder.orderType === "LIMIT") {
-          processPerpLimitBuy(incomingOrder);
-        } else {
-          // TODO
-          // processPerpMarketBuy();
-        }
+      if (!isValidOrder(incomingOrder)) {
+        data = {
+          requestType: "create_order",
+          identifier: parsedResponse.orderId,
+          error: "This order failed validation checks to create an order",
+        };
       } else {
-        if (incomingOrder.orderType === "LIMIT") {
-          processPerpLimitSell(incomingOrder);
+        const market: Market = parsedResponse.market;
+
+        // Process the incoming order
+        if (incomingOrder.tradeSide === "LONG") {
+          if (incomingOrder.orderType === "LIMIT") {
+            processPerpLimitBuy(incomingOrder);
+          } else {
+            // TODO
+            // processPerpMarketBuy();
+          }
         } else {
-          // TODO
-          // processPerpMarketSell();
+          if (incomingOrder.orderType === "LIMIT") {
+            processPerpLimitSell(incomingOrder);
+          } else {
+            // TODO
+            // processPerpMarketSell();
+          }
         }
-      }
 
-      data = {
-        requestType: "create_order",
-        identifier: incomingOrder.orderId,
-        order: incomingOrder,
-        orderbook: PERP_ORDERBOOK[market.id],
-      };
+        data = {
+          requestType: "create_order",
+          identifier: incomingOrder.orderId,
+          order: incomingOrder,
+          orderbook: PERP_ORDERBOOK[market.id],
+        };
 
-      // Publish to the WS server
-      if (PERP_ORDERBOOK[incomingOrder.market.id]) {
-        const currentMarketDepth =
-          PERP_ORDERBOOK[incomingOrder.market.id] ?? ({} as PerpAssetOrderBook);
-        await publisherClient.lPush(
-          "perp-order-updates",
-          JSON.stringify({
-            currentMarketDepth,
-            marketId: market.id,
-          }),
-        );
+        // Publish to the WS server
+        if (PERP_ORDERBOOK[incomingOrder.market.id]) {
+          const currentMarketDepth =
+            PERP_ORDERBOOK[incomingOrder.market.id] ??
+            ({} as PerpAssetOrderBook);
+          await publisherClient.lPush(
+            "perp-order-updates",
+            JSON.stringify({
+              currentMarketDepth,
+              marketId: market.id,
+            }),
+          );
+        }
       }
     } catch (error) {
       data = {

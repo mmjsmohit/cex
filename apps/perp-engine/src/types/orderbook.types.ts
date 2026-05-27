@@ -31,6 +31,8 @@ interface PerpOrder {
   createdAt: number;
   fills: Fill[];
   leverage: number;
+  take_profit: number | undefined;
+  stop_loss: number | undefined;
 }
 
 interface PerpAssetOrderBook {

@@ -78,6 +78,8 @@ export function processPerpLimitBuy(incomingOrder: PerpOrder) {
       market: incomingOrder.market,
       longerLeverage: incomingOrder.leverage || 1,
       shorterLeverage: bestAsk!.leverage || 1,
+      take_profit: incomingOrder.take_profit,
+      stop_loss: incomingOrder.stop_loss,
     });
 
     const reservedLongMargin = calculateInitialMargin(
@@ -252,6 +254,8 @@ export function processPerpLimitSell(incomingOrder: PerpOrder) {
       market: incomingOrder.market,
       longerLeverage: bestBid!.leverage || 1,
       shorterLeverage: incomingOrder.leverage || 1,
+      take_profit: incomingOrder.take_profit,
+      stop_loss: incomingOrder.stop_loss,
     });
 
     // 5. Update Order States
