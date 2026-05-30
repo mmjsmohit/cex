@@ -632,6 +632,101 @@ for await (const streamedRequest of incomingMessageStream()) {
       };
     }
   }
+
+  if (parsedResponse.requestType === "close_position") {
+    const userId = parsedResponse.userId;
+    const marketId = parsedResponse.marketId;
+    const identifier = parsedResponse.identifier;
+    const targetMarket = markets.find((market) => market.id === marketId)!;
+    let positionIdx;
+    try {
+      // Find if a position is even open or not for the specified user
+      const userPosition = Object.entries(PERP_POSITIONS[marketId]!).find(
+        (position, idx) => {
+          if (position[1].userId === userId) {
+            positionIdx = idx;
+            return true;
+          }
+          return false;
+        },
+      )?.[1];
+      console.log(userPosition);
+      // Check if position is present in the userPosition
+      if (userPosition) {
+        if (userPosition.tradeSide === "LONG") {
+          // Create an opposite short limit order
+          const oppositeShortOrder: PerpOrder = {
+            userId: userId,
+            orderId: userPosition.orderId,
+            market: targetMarket,
+            entryPrice: PERP_ORDERBOOK[marketId]?.indexPrice,
+            quantity: userPosition.quantity,
+            margin: userPosition.margin,
+            filled: 0,
+            orderType: "LIMIT",
+            tradeSide: "SHORT",
+            createdAt: Date.now(),
+            fills: [],
+            leverage: 1,
+            take_profit: undefined,
+            stop_loss: undefined,
+          };
+
+          processPerpLimitSell(oppositeShortOrder);
+        } else {
+          // Create an opposite long limit order
+          const oppositeLongOrder: PerpOrder = {
+            userId: userId,
+            orderId: userPosition.orderId,
+            market: targetMarket,
+            entryPrice: PERP_ORDERBOOK[marketId]?.indexPrice,
+            quantity: userPosition.quantity,
+            margin: userPosition.margin,
+            filled: 0,
+            orderType: "LIMIT",
+            tradeSide: "LONG",
+            createdAt: Date.now(),
+            fills: [],
+            leverage: 1,
+            take_profit: undefined,
+            stop_loss: undefined,
+          };
+
+          processPerpLimitBuy(oppositeLongOrder);
+        }
+
+        // Give the user their margin back and also the unrealized PnL (can be either +ve or -ve)
+        COLLATERALS[userId]?.map((collateral, index) => {
+          if (
+            collateral.marketId == targetMarket.id &&
+            COLLATERALS?.[userId]?.[index] != undefined &&
+            COLLATERALS?.[userId]?.[index] != null
+          ) {
+            COLLATERALS[userId][index].amount +=
+              userPosition?.margin! + userPosition?.upnl!;
+            COLLATERALS[userId][index].lockedAmount -= userPosition?.margin!;
+          }
+        });
+
+        // Remove the position from the positions array
+        PERP_POSITIONS[marketId]?.splice(positionIdx!, 1);
+      } else {
+        throw new Error("No position found for this user in the given market");
+      }
+      // Add userOrders to the response
+      data = {
+        type: "close_position",
+        identifier,
+        positions: userPosition,
+      };
+    } catch (error) {
+      data = {
+        type: "close_position",
+        identifier,
+        error: error instanceof Error ? error.message : "Something went wrong",
+      };
+    }
+  }
   // if (parsedResponse.requestType === "get_balance") {
   //   const { userId, identifier } = parsedResponse;
   //   const balance = BALANCES[userId];
@@ -714,16 +809,11 @@ function executeFunding(market: Market) {
 
   // Iterate through all the positions and apply the funding rate
   PERP_POSITIONS[market.id]?.forEach((longPosition) => {
-    if (
-      longPosition.tradeSide === "LONG" &&
-      longPosition.fundingDone == false
-    ) {
+    if (longPosition.tradeSide === "LONG") {
       const longPositionOrderId = longPosition.orderId;
       const shortPosition = PERP_POSITIONS[market.id]?.find(
         (order) => order.orderId === longPositionOrderId,
       );
-      longPosition.fundingDone = true;
-      shortPosition!.fundingDone = true;
 
       // Add the funding amount to long position
       longPosition.margin += fundingRate * longPosition.quantity * indexPrice!;
@@ -738,9 +828,5 @@ function executeFunding(market: Market) {
     }
 
     // After funding has been done, set the funding done flag to false for the next funding cycle
-    // This will allow the funding worker to execute the next funding cycle
-    PERP_POSITIONS[market.id]!.forEach((position) => {
-      position.fundingDone = false;
-    });
   });
 }

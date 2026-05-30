@@ -353,6 +353,8 @@ export function liquidatePositions(
       createdAt: Date.now(),
       fills: [],
       leverage: 1,
+      take_profit: undefined,
+      stop_loss: undefined,
     };
 
     // Process the opposing order through the matching engine
