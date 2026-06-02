@@ -45,7 +45,9 @@ export async function signUpRequest(input: SignUpInput) {
     body: JSON.stringify(input),
   });
 
-  const payload = await parseJson<ApiErrorShape & { message?: string }>(response);
+  const payload = await parseJson<ApiErrorShape & { message?: string }>(
+    response,
+  );
 
   if (!response.ok) {
     throw new Error(payload.message ?? "Unable to sign up");

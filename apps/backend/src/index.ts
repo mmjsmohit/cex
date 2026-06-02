@@ -34,21 +34,24 @@ const candleIntervals: Record<CandleInterval, string> = {
 };
 
 const app = express();
-const allowedOrigin =
-  process.env.CORS_ORIGIN ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3002";
+const allowedOrigins = (
+  process.env.CORS_ORIGIN ??
+  process.env.NEXT_PUBLIC_APP_URL ??
+  "http://localhost:3002"
+)
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
-  if (!origin || origin === allowedOrigin) {
-    res.header("Access-Control-Allow-Origin", origin ?? allowedOrigin);
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin ?? allowedOrigins[0]);
     res.header("Vary", "Origin");
   }
 
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization",
-  );
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.header(
     "Access-Control-Allow-Methods",
     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
@@ -60,6 +63,7 @@ app.use((req, res, next) => {
 
   next();
 });
+
 app.use(express.json());
 
 function resolveGetMarketType(req: Request): MarketType {
