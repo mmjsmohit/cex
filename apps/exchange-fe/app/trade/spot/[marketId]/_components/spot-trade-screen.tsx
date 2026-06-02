@@ -114,7 +114,7 @@ export function SpotTradeScreen({ marketId }: SpotTradeScreenProps) {
   }, [refreshAccountData]);
 
   React.useEffect(() => {
-    const socketUrl = new URL(DEFAULT_SPOT_WS_URL);
+    const socketUrl = resolveWebSocketUrl(DEFAULT_SPOT_WS_URL);
     socketUrl.searchParams.set("marketId", marketId);
     const socket = new WebSocket(socketUrl.toString());
 
@@ -212,4 +212,27 @@ function getBestBid(depth: MarketDepth) {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function resolveWebSocketUrl(defaultUrl: string) {
+  const candidate = defaultUrl.trim();
+
+  if (!candidate) {
+    return getBrowserFallbackUrl();
+  }
+
+  try {
+    return new URL(candidate);
+  } catch {
+    return getBrowserFallbackUrl();
+  }
+}
+
+function getBrowserFallbackUrl() {
+  if (typeof window === "undefined") {
+    return new URL("ws://localhost:4000");
+  }
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return new URL(`${protocol}//${window.location.host}`);
 }
