@@ -34,6 +34,32 @@ const candleIntervals: Record<CandleInterval, string> = {
 };
 
 const app = express();
+const allowedOrigin =
+  process.env.CORS_ORIGIN ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3002";
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (!origin || origin === allowedOrigin) {
+    res.header("Access-Control-Allow-Origin", origin ?? allowedOrigin);
+    res.header("Vary", "Origin");
+  }
+
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization",
+  );
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
 app.use(express.json());
 
 function resolveGetMarketType(req: Request): MarketType {
@@ -694,7 +720,7 @@ app.post("/assets", authMiddleware, async (req, res) => {
 });
 
 // Get all the assets created
-app.get("/assets", authMiddleware, async (req, res) => {
+app.get("/assets", async (req, res) => {
   const assets = await prisma.asset.findMany({
     where: {},
   });

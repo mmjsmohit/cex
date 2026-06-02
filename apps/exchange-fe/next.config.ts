@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
         hostname: "backpack.exchange",
         pathname: "/**",
       },
+      {
+        protocol: "https",
+        hostname: "upload.wikimedia.org",
+        pathname: "/**",
+      },
     ],
   },
 };
