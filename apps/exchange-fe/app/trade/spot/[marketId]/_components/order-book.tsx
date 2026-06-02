@@ -90,10 +90,12 @@ function DepthRows({
             </span>
             <span
               className={cn(
-                "absolute inset-y-0 right-0 -z-0 opacity-30",
+                "absolute inset-y-0 right-0 z-0 opacity-30",
                 side === "bid" ? "bg-emerald-300" : "bg-rose-300",
               )}
-              style={{ width: `${Math.min((level.total / maxTotal) * 100, 100)}%` }}
+              style={{
+                width: `${Math.min((level.total / maxTotal) * 100, 100)}%`,
+              }}
             />
           </div>
         ))
